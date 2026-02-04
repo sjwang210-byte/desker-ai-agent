@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+python/
+
+# Data
+data/desker.db
+data/uploads/
+
+# Environment
+.env
+
+# Embedded Python
+python-embed.zip
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+nul

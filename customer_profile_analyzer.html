@@ -639,7 +639,7 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
   <div class="tabs">
     <button class="tab-btn active" onclick="switchReviewTab('list')">리뷰 리스트</button>
     <button class="tab-btn" onclick="switchReviewTab('keywords')">키워드 분석</button>
-    <button class="tab-btn" onclick="switchReviewTab('gallery')">사진 갤러리</button>
+    <button class="tab-btn" onclick="switchReviewTab('negative')">부정적 의견</button>
   </div>
 
   <!-- Review List -->
@@ -665,10 +665,11 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
     </div>
   </div>
 
-  <!-- Gallery -->
-  <div class="tab-content" id="rtab-gallery">
-    <div class="gallery-grid" id="galleryGrid"></div>
-    <div class="pagination" id="galleryPagination"></div>
+  <!-- Negative Reviews -->
+  <div class="tab-content" id="rtab-negative">
+    <div id="negativeSummary" style="margin-bottom:16px;"></div>
+    <div id="negativeListContainer"></div>
+    <div class="pagination" id="negativePagination"></div>
   </div>
 </div>
 
@@ -1768,8 +1769,7 @@ let selectedCategory = '__ALL__';
 let reviewTypeFilter = 'all';
 let reviewPage = 1;
 const REVIEWS_PER_PAGE = 20;
-let galleryPage = 1;
-const GALLERY_PER_PAGE = 40;
+let negativePage = 1;
 let keywordChartInstance = null;
 let pendingReviewFile = null; // 파싱된 파일 (Convex 저장 대기)
 
@@ -2518,35 +2518,134 @@ function renderKeywords() {
 }
 
 // ───────────────────────────────────────
-// Review - Photo Gallery
+// Review - Negative Reviews
 // ───────────────────────────────────────
-function renderGallery() {
-  const reviews = getFilteredReviews().filter(r => r.photos.length > 0);
-  const allPhotos = [];
+const NEGATIVE_PER_PAGE = 20;
+
+// 불만족 키워드 (KEYWORD_DICT에서 추출)
+const NEGATIVE_KEYWORDS = KEYWORD_DICT['불만족 이유'] || [];
+
+function getNegativeReviews() {
+  const reviews = getFilteredReviews();
+  const results = [];
+
   for (const r of reviews) {
-    for (const url of r.photos) {
-      allPhotos.push({ url, productName: r.productName, rating: r.rating, date: r.date });
+    if (!r.content) continue;
+    const text = r.content;
+    const matched = [];
+
+    // 낮은 평점 (1~2점)
+    const isLowRating = r.rating <= 2;
+
+    // 불만족 키워드 매칭
+    for (const kw of NEGATIVE_KEYWORDS) {
+      if (text.includes(kw)) matched.push(kw);
+    }
+
+    if (isLowRating || matched.length > 0) {
+      results.push({ ...r, negativeKeywords: matched, isLowRating });
     }
   }
 
-  const totalPages = Math.ceil(allPhotos.length / GALLERY_PER_PAGE) || 1;
-  if (galleryPage > totalPages) galleryPage = totalPages;
-  const start = (galleryPage - 1) * GALLERY_PER_PAGE;
-  const pagePhotos = allPhotos.slice(start, start + GALLERY_PER_PAGE);
+  // 불만족 키워드 많은 순 → 낮은 평점 → 최신순
+  results.sort((a, b) => {
+    if (b.negativeKeywords.length !== a.negativeKeywords.length)
+      return b.negativeKeywords.length - a.negativeKeywords.length;
+    if (a.rating !== b.rating) return a.rating - b.rating;
+    return (b.date || '').localeCompare(a.date || '');
+  });
 
-  const grid = document.getElementById('galleryGrid');
-  if (pagePhotos.length === 0) {
-    grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--gray-500);">사진이 있는 리뷰가 없습니다.</div>';
-  } else {
-    grid.innerHTML = pagePhotos.map(p =>
-      `<div class="gallery-item" onclick="openImageModal('${escapeHtml(p.url)}')">
-        <img src="${escapeHtml(p.url)}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="gallery-caption">${'★'.repeat(p.rating)} ${escapeHtml(p.productName.substring(0, 20))}</div>
-      </div>`
-    ).join('');
+  return results;
+}
+
+function renderNegativeReviews() {
+  const reviews = getNegativeReviews();
+
+  // 요약 통계
+  const totalFiltered = getFilteredReviews().length;
+  const negCount = reviews.length;
+  const negPct = totalFiltered > 0 ? ((negCount / totalFiltered) * 100).toFixed(1) : 0;
+
+  // 불만족 키워드 빈도 집계
+  const kwFreq = {};
+  for (const r of reviews) {
+    for (const kw of r.negativeKeywords) {
+      kwFreq[kw] = (kwFreq[kw] || 0) + 1;
+    }
+  }
+  const topKw = Object.entries(kwFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  document.getElementById('negativeSummary').innerHTML = `
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+      <div class="summary-item" style="background:#FFEBEE; flex:0 0 auto; padding:12px 20px;">
+        <div class="num" style="color:#E53935;">${negCount.toLocaleString()}</div>
+        <div class="lbl">부정적 의견</div>
+      </div>
+      <div class="summary-item" style="background:#FFEBEE; flex:0 0 auto; padding:12px 20px;">
+        <div class="num" style="color:#E53935;">${negPct}%</div>
+        <div class="lbl">전체 대비 비율</div>
+      </div>
+      <div style="flex:1; min-width:200px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:var(--gray-700);">주요 불만 키워드</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          ${topKw.map(([kw, cnt]) =>
+            `<span style="background:#FFEBEE; color:#C62828; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500;">${kw} (${cnt})</span>`
+          ).join('')}
+          ${topKw.length === 0 ? '<span style="color:var(--gray-500); font-size:13px;">키워드 없음 (낮은 평점 기반)</span>' : ''}
+        </div>
+      </div>
+    </div>
+    <div style="font-size:12px; color:var(--gray-500); margin-bottom:8px;">* 평점 1~2점 또는 불만족 키워드가 포함된 리뷰를 표시합니다</div>
+  `;
+
+  // 페이지네이션
+  const totalPages = Math.ceil(reviews.length / NEGATIVE_PER_PAGE) || 1;
+  if (negativePage > totalPages) negativePage = totalPages;
+  const start = (negativePage - 1) * NEGATIVE_PER_PAGE;
+  const pageReviews = reviews.slice(start, start + NEGATIVE_PER_PAGE);
+
+  const container = document.getElementById('negativeListContainer');
+  if (pageReviews.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500);">부정적 의견이 없습니다.</div>';
+    document.getElementById('negativePagination').innerHTML = '';
+    return;
   }
 
-  renderPagination('galleryPagination', galleryPage, totalPages, (p) => { galleryPage = p; renderGallery(); });
+  container.innerHTML = pageReviews.map(r => {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(Math.max(0, 5 - r.rating));
+    const badges = [];
+    if (r.isLowRating) badges.push('<span class="badge" style="background:#FFEBEE; color:#C62828;">낮은평점</span>');
+    if (r.isMonth) badges.push('<span class="badge badge-month">한달사용</span>');
+    const kwBadges = r.negativeKeywords.map(kw =>
+      `<span class="badge" style="background:#FFEBEE; color:#C62828;">${escapeHtml(kw)}</span>`
+    ).join(' ');
+
+    return `<div class="review-item" style="border-left:3px solid #E53935;">
+      <div class="review-header">
+        <span class="stars">${stars}</span>
+        ${badges.join(' ')} ${kwBadges}
+      </div>
+      <div class="review-product">${escapeHtml(r.productName)} (${r.productId})</div>
+      <div class="review-body">${highlightNegative(escapeHtml(r.content || '(내용 없음)'), r.negativeKeywords)}</div>
+      <div class="review-meta">
+        <span>${escapeHtml(r.author || '익명')}</span>
+        <span>${r.date || '-'}</span>
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">${r.category}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  renderPagination('negativePagination', negativePage, totalPages, (p) => { negativePage = p; renderNegativeReviews(); });
+}
+
+function highlightNegative(html, keywords) {
+  let result = html;
+  for (const kw of keywords) {
+    const escaped = escapeHtml(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escaped, 'g'),
+      `<mark style="background:#FFCDD2; padding:0 2px; border-radius:2px;">$&</mark>`);
+  }
+  return result;
 }
 
 // ───────────────────────────────────────
@@ -2566,14 +2665,14 @@ function closeImageModal() {
 // ───────────────────────────────────────
 function switchReviewTab(tab) {
   document.querySelectorAll('#reviewResultCard .tab-btn').forEach((btn, i) => {
-    const tabs = ['list', 'keywords', 'gallery'];
+    const tabs = ['list', 'keywords', 'negative'];
     btn.classList.toggle('active', tabs[i] === tab);
   });
-  ['list', 'keywords', 'gallery'].forEach(t => {
+  ['list', 'keywords', 'negative'].forEach(t => {
     document.getElementById('rtab-' + t).classList.toggle('active', t === tab);
   });
   if (tab === 'keywords') renderKeywords();
-  if (tab === 'gallery') renderGallery();
+  if (tab === 'negative') renderNegativeReviews();
 }
 
 // 페이지 로드 시 기간 목록 자동 불러오기

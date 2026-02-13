@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>고객 프로파일 분석</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --primary: #1E88E5;
+  --primary-light: #E3F2FD;
+  --primary-dark: #1565C0;
+  --success: #43A047;
+  --success-light: #E8F5E9;
+  --warning: #FB8C00;
+  --warning-light: #FFF3E0;
+  --danger: #E53935;
+  --gray-50: #FAFAFA;
+  --gray-100: #F5F5F5;
+  --gray-200: #EEEEEE;
+  --gray-300: #E0E0E0;
+  --gray-500: #9E9E9E;
+  --gray-700: #616161;
+  --gray-900: #212121;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  background: var(--gray-50);
+  color: var(--gray-900);
+  line-height: 1.6;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+/* Header */
+.header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  padding: 24px 32px;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-md);
+}
+.header h1 { font-size: 24px; font-weight: 700; }
+.header p { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+
+/* Cards */
+.card {
+  background: white;
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+.card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Upload Area */
+.upload-area {
+  border: 2px dashed var(--gray-300);
+  border-radius: var(--radius);
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--gray-50);
+}
+.upload-area:hover, .upload-area.dragover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.upload-area .icon { font-size: 48px; margin-bottom: 12px; }
+.upload-area p { color: var(--gray-700); font-size: 14px; }
+.upload-area input { display: none; }
+
+/* Status Cards */
+.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.status-card {
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+}
+.status-card.loaded {
+  border-color: var(--success);
+  background: var(--success-light);
+}
+.status-card.empty {
+  border-color: var(--warning);
+  background: var(--warning-light);
+}
+.status-card .dim-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.status-card .dim-info { font-size: 12px; color: var(--gray-700); }
+
+/* Controls */
+.controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.control-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 6px;
+}
+.control-group select, .control-group input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+}
+.control-group select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(30,136,229,0.15);
+}
+.checkbox-group {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin-top: 8px;
+}
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 400;
+  color: var(--gray-900);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--gray-200);
+  margin-bottom: 20px;
+}
+.tab-btn {
+  padding: 10px 24px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-500);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.tab-btn:hover { color: var(--primary-dark); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Metrics Row */
+.metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.metric-card {
+  background: var(--gray-100);
+  padding: 12px 16px;
+  border-radius: 6px;
+  text-align: center;
+}
+.metric-card .label { font-size: 12px; color: var(--gray-500); }
+.metric-card .value { font-size: 20px; font-weight: 700; color: var(--primary); }
+
+/* Table */
+.table-wrapper { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead th {
+  background: var(--primary);
+  color: white;
+  padding: 10px 12px;
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+thead th:first-child { text-align: left; }
+tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--gray-200);
+  text-align: center;
+  white-space: nowrap;
+}
+tbody td:first-child { text-align: left; font-weight: 500; }
+tbody tr:hover { background: var(--primary-light); }
+tbody tr:nth-child(even) { background: var(--gray-50); }
+tbody tr:nth-child(even):hover { background: var(--primary-light); }
+
+/* Highlight max value in row */
+td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); }
+
+/* Buttons */
+.btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: var(--gray-200); color: var(--gray-700); }
+.btn-secondary:hover { background: var(--gray-300); }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger:hover { background: #C62828; }
+.btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* Chart */
+.chart-container { max-width: 900px; margin: 0 auto; }
+.chart-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+.chart-controls .btn.active { background: var(--primary); color: white; }
+
+/* Integrated View */
+.integrated-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.integrated-card {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.integrated-card h4 {
+  font-size: 15px;
+  color: var(--primary);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--primary-light);
+}
+.attr-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.attr-bar .name { width: 80px; font-size: 13px; font-weight: 500; text-align: right; flex-shrink: 0; }
+.attr-bar .bar-bg {
+  flex: 1;
+  height: 24px;
+  background: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.attr-bar .bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+  min-width: 2px;
+}
+.attr-bar .pct { width: 55px; font-size: 13px; font-weight: 600; text-align: right; flex-shrink: 0; }
+
+/* Drilldown */
+.drilldown-controls { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
+.breadcrumb { font-size: 13px; color: var(--gray-500); margin-bottom: 12px; }
+.breadcrumb span { color: var(--primary); font-weight: 600; }
+
+/* Hidden */
+.hidden { display: none !important; }
+
+/* Info */
+.info-box {
+  background: var(--primary-light);
+  border: 1px solid #BBDEFB;
+  border-radius: 6px;
+  padding: 16px;
+  font-size: 14px;
+  color: var(--primary-dark);
+  text-align: center;
+}
+
+/* Radio buttons styled */
+.radio-group { display: flex; gap: 0; }
+.radio-group label {
+  padding: 6px 16px;
+  border: 1px solid var(--gray-300);
+  font-size: 13px;
+  cursor: pointer;
+  background: white;
+  transition: all 0.2s;
+  font-weight: 400;
+  color: var(--gray-700);
+}
+.radio-group label:first-child { border-radius: 6px 0 0 6px; }
+.radio-group label:last-child { border-radius: 0 6px 6px 0; }
+.radio-group label:not(:last-child) { border-right: none; }
+.radio-group input { display: none; }
+.radio-group input:checked + span {
+  /* handled via JS by adding .active class to label */
+}
+.radio-group label.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>고객 프로파일 분석</h1>
+  <p>상품별 고객 프로파일(자녀나이, 결혼상태, 가구당인원) 데이터를 업로드하고 카테고리별 비중을 분석합니다.</p>
+</div>
+
+<!-- Section 1: Upload -->
+<div class="card">
+  <h2>1. 데이터 업로드</h2>
+  <div class="upload-area" id="uploadArea">
+    <div class="icon">📂</div>
+    <p><b>클릭하거나 파일을 드래그</b>하여 엑셀 파일을 업로드하세요</p>
+    <p style="font-size:12px; margin-top:8px; color:#999;">파일명 패턴: 상품_고객프로파일_{속성}_{시작일}_{종료일}.xlsx (최대 3개)</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
+  </div>
+  <div class="status-grid" id="statusGrid">
+    <div class="status-card empty" id="status-자녀나이">
+      <div class="dim-name">자녀나이</div>
+      <div class="dim-info">미업로드</div>
+    </div>
+    <div class="status-card empty" id="status-결혼상태">
+      <div class="dim-name">결혼상태</div>
+      <div class="dim-info">미업로드</div>
+    </div>
+    <div class="status-card empty" id="status-가구당인원">
+      <div class="dim-name">가구당인원</div>
+      <div class="dim-info">미업로드</div>
+    </div>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-danger hidden" id="resetBtn" onclick="resetData()">데이터 초기화</button>
+  </div>
+</div>
+
+<!-- Section 2: Controls -->
+<div class="card hidden" id="controlsCard">
+  <h2>2. 분석 설정</h2>
+  <div class="controls-grid">
+    <div class="control-group">
+      <label>분석 차원</label>
+      <select id="selDimension" onchange="runAnalysis()"></select>
+    </div>
+    <div class="control-group">
+      <label>집계 수준</label>
+      <select id="selLevel" onchange="runAnalysis()">
+        <option value="대분류">대분류</option>
+        <option value="중분류" selected>중분류</option>
+        <option value="소분류">소분류</option>
+        <option value="세분류">세분류</option>
+        <option value="상품">상품</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>지표</label>
+      <div class="radio-group" id="metricGroup">
+        <label class="active" onclick="selectMetric(this, '결제금액')"><span>결제금액</span></label>
+        <label onclick="selectMetric(this, '결제수')"><span>결제수</span></label>
+        <label onclick="selectMetric(this, '결제상품수량')"><span>결제상품수량</span></label>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>옵션</label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" id="chkExcludeUnknown" checked onchange="runAnalysis()"> (알수없음) 제외</label>
+        <label><input type="checkbox" id="chkShowAbsolute" onchange="renderCurrentTab()"> 절대값 표시</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 3: Results -->
+<div class="card hidden" id="resultsCard">
+  <h2>3. 분석 결과</h2>
+
+  <div class="metrics-row" id="metricsRow"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('table')">테이블 보기</button>
+    <button class="tab-btn" onclick="switchTab('chart')">차트 보기</button>
+    <button class="tab-btn" onclick="switchTab('integrated')">통합 보기</button>
+  </div>
+
+  <!-- Tab 1: Table -->
+  <div class="tab-content active" id="tab-table">
+    <div class="table-wrapper" id="mainTable"></div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="exportExcel()">엑셀 다운로드</button>
+    </div>
+
+    <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--gray-200);">
+    <h3 style="font-size:15px; font-weight:600; margin-bottom:12px;">드릴다운 분석</h3>
+    <div class="drilldown-controls" id="drilldownControls"></div>
+    <div id="drilldownResult"></div>
+  </div>
+
+  <!-- Tab 2: Chart -->
+  <div class="tab-content" id="tab-chart">
+    <div class="chart-controls" id="chartTypeGroup">
+      <button class="btn btn-primary" onclick="selectChartType('bar-h')">가로 막대</button>
+      <button class="btn btn-secondary" onclick="selectChartType('bar-v')">세로 막대</button>
+      <button class="btn btn-secondary" onclick="selectChartType('pie')">파이</button>
+    </div>
+    <div id="pieSelector" class="hidden" style="margin-bottom:16px;">
+      <div class="control-group" style="max-width:300px;">
+        <label>카테고리 선택</label>
+        <select id="selPieCategory" onchange="renderPieChart()"></select>
+      </div>
+    </div>
+    <div class="chart-container">
+      <canvas id="mainChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Tab 3: Integrated -->
+  <div class="tab-content" id="tab-integrated">
+    <div id="integratedContent"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ───────────────────────────────────────
+// Constants
+// ───────────────────────────────────────
+const DIMENSIONS = {
+  '자녀나이': ['초등학생', '미취학', '자녀없음', '중고등학생', '0-24개월', '성인', '(알수없음)'],
+  '결혼상태': ['기혼', '미혼', '(알수없음)'],
+  '가구당인원': ['2인이상', '1인', '(알수없음)'],
+};
+const CATEGORY_COLUMNS = ['대분류', '중분류', '소분류', '세분류', '상품명', '상품ID'];
+const PAYMENT_METRICS = ['결제금액', '결제수', '결제상품수량'];
+const REFUND_METRICS = ['환불금액', '환불건수', '환불수량'];
+const ALL_METRICS = [...PAYMENT_METRICS, ...REFUND_METRICS];
+const UNKNOWN_VALUE = '(알수없음)';
+const LEVEL_HIERARCHY = ['대분류', '중분류', '소분류', '세분류', '상품'];
+const CHART_COLORS = [
+  '#1E88E5','#43A047','#FB8C00','#E53935','#8E24AA','#00ACC1','#F4511E',
+  '#3949AB','#7CB342','#FDD835','#6D4C41','#546E7A',
+];
+
+// ───────────────────────────────────────
+// State
+// ───────────────────────────────────────
+let profileData = {};  // { dimension: { df: [...], attrValues: [...], filename, dateRange } }
+let currentResult = null;
+let currentMetric = '결제금액';
+let currentChartType = 'bar-h';
+let mainChartInstance = null;
+
+// ───────────────────────────────────────
+// File Upload
+// ───────────────────────────────────────
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+
+uploadArea.addEventListener('click', () => fileInput.click());
+uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+function handleFiles(files) {
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: 0 });
+        if (json.length === 0) { alert(`빈 파일입니다: ${file.name}`); return; }
+        processFile(file.name, json);
+      } catch (err) {
+        alert(`파일 파싱 오류: ${file.name}\n${err.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function processFile(filename, rows) {
+  // Identify dimension
+  let dimension = identifyFileType(filename, rows);
+  if (!dimension) {
+    alert(`파일 유형을 인식할 수 없습니다: ${filename}`);
+    return;
+  }
+
+  // Detect attribute column or wide format
+  const parsed = parseRows(rows, dimension);
+  const dateRange = parseDateRange(filename);
+
+  profileData[dimension] = {
+    df: parsed,
+    attrValues: DIMENSIONS[dimension],
+    filename: filename,
+    dateRange: dateRange,
+  };
+
+  updateStatus();
+  showControls();
+  runAnalysis();
+}
+
+function identifyFileType(filename, rows) {
+  // Check filename
+  for (const dim of Object.keys(DIMENSIONS)) {
+    if (filename.includes(dim)) return dim;
+  }
+  // Check column headers
+  const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const colStr = cols.join(' ');
+  for (const [dim, attrs] of Object.entries(DIMENSIONS)) {
+    if (colStr.includes(dim)) return dim;
+    const matches = attrs.filter(a => colStr.includes(a)).length;
+    if (matches >= 2) return dim;
+  }
+  return null;
+}
+
+function parseDateRange(filename) {
+  let m = filename.match(/_(\d{8})_(\d{8})/);
+  if (m) {
+    const s = m[1], e = m[2];
+    return { start: `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`, end: `${e.slice(0,4)}-${e.slice(4,6)}-${e.slice(6,8)}` };
+  }
+  m = filename.match(/_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})/);
+  if (m) return { start: m[1], end: m[2] };
+  return null;
+}
+
+function parseRows(rows, dimension) {
+  if (rows.length === 0) return [];
+  const cols = Object.keys(rows[0]);
+
+  // Check if dimension name or attribute values exist as a column (long format)
+  let attrCol = null;
+  if (cols.includes(dimension)) {
+    attrCol = dimension;
+  } else {
+    const attrValues = new Set(DIMENSIONS[dimension]);
+    for (const col of cols) {
+      if (CATEGORY_COLUMNS.includes(col) || ALL_METRICS.includes(col)) continue;
+      const vals = new Set(rows.slice(0, 100).map(r => String(r[col]).trim()));
+      const overlap = [...vals].filter(v => attrValues.has(v));
+      if (overlap.length >= 2) { attrCol = col; break; }
+    }
+  }
+
+  if (attrCol) {
+    // Long format
+    return rows.map(r => {
+      const rec = { attribute_value: String(r[attrCol]).trim() };
+      for (const cc of CATEGORY_COLUMNS) {
+        if (r[cc] !== undefined) rec[cc] = r[cc];
+      }
+      for (const m of ALL_METRICS) {
+        rec[m] = safeNum(r[m]);
+      }
+      return rec;
+    });
+  }
+
+  // Wide format: attribute values are column prefixes
+  const attrValues = DIMENSIONS[dimension];
+  const result = [];
+  for (const r of rows) {
+    const catData = {};
+    for (const cc of CATEGORY_COLUMNS) {
+      if (r[cc] !== undefined) catData[cc] = r[cc];
+    }
+    for (const attr of attrValues) {
+      const rec = { ...catData, attribute_value: attr };
+      for (const m of ALL_METRICS) {
+        const colName = findMetricColumn(Object.keys(r), attr, m);
+        rec[m] = colName ? safeNum(r[colName]) : 0;
+      }
+      result.push(rec);
+    }
+  }
+  return result;
+}
+
+function findMetricColumn(cols, attrValue, metric) {
+  return cols.find(c => c.includes(attrValue) && c.includes(metric)) || null;
+}
+
+function safeNum(v) {
+  if (v == null || v === '') return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+// ───────────────────────────────────────
+// UI Status
+// ───────────────────────────────────────
+function updateStatus() {
+  for (const dim of Object.keys(DIMENSIONS)) {
+    const el = document.getElementById(`status-${dim}`);
+    if (profileData[dim]) {
+      const d = profileData[dim];
+      const nRows = d.df.length;
+      const dr = d.dateRange;
+      el.className = 'status-card loaded';
+      el.innerHTML = `
+        <div class="dim-name">${dim} — 업로드 완료</div>
+        <div class="dim-info">파일: ${d.filename}</div>
+        <div class="dim-info">행 수: ${nRows.toLocaleString()}개</div>
+        ${dr ? `<div class="dim-info">기간: ${dr.start} ~ ${dr.end}</div>` : ''}
+      `;
+    } else {
+      el.className = 'status-card empty';
+      el.innerHTML = `<div class="dim-name">${dim}</div><div class="dim-info">미업로드</div>`;
+    }
+  }
+  document.getElementById('resetBtn').classList.toggle('hidden', Object.keys(profileData).length === 0);
+}
+
+function resetData() {
+  if (!confirm('업로드된 모든 데이터를 초기화하시겠습니까?')) return;
+  profileData = {};
+  currentResult = null;
+  updateStatus();
+  document.getElementById('controlsCard').classList.add('hidden');
+  document.getElementById('resultsCard').classList.add('hidden');
+  fileInput.value = '';
+}
+
+function showControls() {
+  const dims = Object.keys(profileData);
+  if (dims.length === 0) return;
+
+  document.getElementById('controlsCard').classList.remove('hidden');
+  const sel = document.getElementById('selDimension');
+  sel.innerHTML = dims.map(d => `<option value="${d}">${d}</option>`).join('');
+}
+
+// ───────────────────────────────────────
+// Analysis
+// ───────────────────────────────────────
+function selectMetric(el, metric) {
+  currentMetric = metric;
+  document.querySelectorAll('#metricGroup label').forEach(l => l.classList.remove('active'));
+  el.classList.add('active');
+  runAnalysis();
+}
+
+function runAnalysis() {
+  const dimension = document.getElementById('selDimension').value;
+  const level = document.getElementById('selLevel').value;
+  const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
+
+  if (!profileData[dimension]) return;
+
+  const df = profileData[dimension].df;
+  const result = computePercentageDistribution(df, level, currentMetric, excludeUnknown);
+
+  let attrValues = DIMENSIONS[dimension].slice();
+  if (excludeUnknown) attrValues = attrValues.filter(a => a !== UNKNOWN_VALUE);
+
+  currentResult = { dimension, level, metric: currentMetric, excludeUnknown, data: result, attrValues };
+
+  document.getElementById('resultsCard').classList.remove('hidden');
+  renderMetrics();
+  renderCurrentTab();
+}
+
+function computePercentageDistribution(df, aggLevel, metric, excludeUnknown) {
+  let data = df;
+  if (excludeUnknown) data = data.filter(r => r.attribute_value !== UNKNOWN_VALUE);
+
+  const groupCol = aggLevel === '상품' ? '상품명' : aggLevel;
+
+  // Group by category + attribute_value → sum metric
+  const map = {};
+  for (const r of data) {
+    const cat = r[groupCol] || '';
+    if (!cat) continue;
+    if (!map[cat]) map[cat] = {};
+    const attr = r.attribute_value;
+    map[cat][attr] = (map[cat][attr] || 0) + safeNum(r[metric]);
+  }
+
+  // Build result rows
+  const rows = [];
+  for (const [cat, attrs] of Object.entries(map)) {
+    const total = Object.values(attrs).reduce((s, v) => s + v, 0);
+    const row = { category: cat, '합계': total };
+    for (const [attr, val] of Object.entries(attrs)) {
+      row[attr] = total > 0 ? Math.round(val / total * 1000) / 10 : 0;
+      row[`${attr}_abs`] = val;
+    }
+    rows.push(row);
+  }
+
+  rows.sort((a, b) => b['합계'] - a['합계']);
+  return rows;
+}
+
+// ───────────────────────────────────────
+// Tabs
+// ───────────────────────────────────────
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`#tab-${tabId}`).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.textContent.includes(tabId === 'table' ? '테이블' : tabId === 'chart' ? '차트' : '통합'))
+      b.classList.add('active');
+  });
+  renderCurrentTab();
+}
+
+function renderCurrentTab() {
+  if (!currentResult) return;
+  const active = document.querySelector('.tab-content.active');
+  if (active.id === 'tab-table') renderTable();
+  else if (active.id === 'tab-chart') renderChart();
+  else if (active.id === 'tab-integrated') renderIntegrated();
+}
+
+// ───────────────────────────────────────
+// Metrics Row
+// ───────────────────────────────────────
+function renderMetrics() {
+  if (!currentResult) return;
+  const r = currentResult;
+  document.getElementById('metricsRow').innerHTML = `
+    <div class="metric-card"><div class="label">카테고리 수</div><div class="value">${r.data.length}개</div></div>
+    <div class="metric-card"><div class="label">분석 차원</div><div class="value">${r.dimension}</div></div>
+    <div class="metric-card"><div class="label">집계 수준</div><div class="value">${r.level}</div></div>
+    <div class="metric-card"><div class="label">지표</div><div class="value">${r.metric}</div></div>
+  `;
+}
+
+// ───────────────────────────────────────
+// Table Rendering
+// ───────────────────────────────────────
+function renderTable() {
+  if (!currentResult) return;
+  const { data, attrValues, level } = currentResult;
+  const showAbs = document.getElementById('chkShowAbsolute').checked;
+
+  let html = '<table><thead><tr><th>카테고리</th>';
+  for (const a of attrValues) html += `<th>${a}</th>`;
+  html += '<th>합계</th></tr></thead><tbody>';
+
+  for (const row of data) {
+    // Find max percentage value in this row
+    let maxPct = -1;
+    let maxAttr = '';
+    for (const a of attrValues) {
+      const pct = row[a] || 0;
+      if (pct > maxPct) { maxPct = pct; maxAttr = a; }
+    }
+
+    html += `<tr><td>${row.category}</td>`;
+    for (const a of attrValues) {
+      const pct = row[a] || 0;
+      const abs = row[`${a}_abs`] || 0;
+      const isMax = a === maxAttr && maxPct > 0 ? ' class="max-val"' : '';
+      const display = showAbs ? `${pct.toFixed(1)}% (${abs.toLocaleString()})` : `${pct.toFixed(1)}%`;
+      html += `<td${isMax}>${display}</td>`;
+    }
+    html += `<td style="font-weight:600;">${(row['합계'] || 0).toLocaleString()}</td></tr>`;
+  }
+  html += '</tbody></table>';
+
+  document.getElementById('mainTable').innerHTML = html;
+  renderDrilldown();
+}
+
+// ───────────────────────────────────────
+// Drilldown
+// ───────────────────────────────────────
+function renderDrilldown() {
+  const { data, level } = currentResult;
+  const idx = LEVEL_HIERARCHY.indexOf(level);
+  const container = document.getElementById('drilldownControls');
+  const resultDiv = document.getElementById('drilldownResult');
+  resultDiv.innerHTML = '';
+
+  if (idx >= LEVEL_HIERARCHY.length - 1) {
+    container.innerHTML = '<div class="info-box">최하위 수준입니다. 더 이상 드릴다운할 수 없습니다.</div>';
+    return;
+  }
+
+  const childLevel = LEVEL_HIERARCHY[idx + 1];
+  const categories = data.map(r => r.category);
+
+  container.innerHTML = `
+    <div class="control-group">
+      <label>드릴다운: ${level} → ${childLevel}</label>
+      <select id="selDrillCategory" onchange="executeDrilldown()">
+        ${categories.map(c => `<option value="${c}">${c}</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="executeDrilldown()">분석</button>
+  `;
+}
+
+function executeDrilldown() {
+  const { dimension, level, metric, excludeUnknown, attrValues } = currentResult;
+  const parentValue = document.getElementById('selDrillCategory').value;
+  const idx = LEVEL_HIERARCHY.indexOf(level);
+  const childLevel = LEVEL_HIERARCHY[idx + 1];
+  const parentCol = level === '상품' ? '상품명' : level;
+
+  const df = profileData[dimension].df;
+  const filtered = df.filter(r => r[parentCol] === parentValue);
+  const drillData = computePercentageDistribution(filtered, childLevel, metric, excludeUnknown);
+
+  const showAbs = document.getElementById('chkShowAbsolute').checked;
+  const resultDiv = document.getElementById('drilldownResult');
+
+  if (drillData.length === 0) {
+    resultDiv.innerHTML = '<div class="info-box">하위 데이터가 없습니다.</div>';
+    return;
+  }
+
+  let html = `<div class="breadcrumb">${level}: <span>${parentValue}</span> → ${childLevel} 하위 분석</div>`;
+  html += '<div class="table-wrapper"><table><thead><tr><th>카테고리</th>';
+  for (const a of attrValues) html += `<th>${a}</th>`;
+  html += '<th>합계</th></tr></thead><tbody>';
+
+  for (const row of drillData) {
+    let maxPct = -1, maxAttr = '';
+    for (const a of attrValues) { if ((row[a]||0) > maxPct) { maxPct = row[a]||0; maxAttr = a; } }
+
+    html += `<tr><td>${row.category}</td>`;
+    for (const a of attrValues) {
+      const pct = row[a] || 0;
+      const abs = row[`${a}_abs`] || 0;
+      const isMax = a === maxAttr && maxPct > 0 ? ' class="max-val"' : '';
+      const display = showAbs ? `${pct.toFixed(1)}% (${abs.toLocaleString()})` : `${pct.toFixed(1)}%`;
+      html += `<td${isMax}>${display}</td>`;
+    }
+    html += `<td style="font-weight:600;">${(row['합계']||0).toLocaleString()}</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+  resultDiv.innerHTML = html;
+}
+
+// ───────────────────────────────────────
+// Chart Rendering
+// ───────────────────────────────────────
+function selectChartType(type) {
+  currentChartType = type;
+  document.querySelectorAll('#chartTypeGroup .btn').forEach(b => {
+    b.className = 'btn ' + (b.textContent.includes(
+      type === 'bar-h' ? '가로' : type === 'bar-v' ? '세로' : '파이'
+    ) ? 'btn-primary' : 'btn-secondary');
+  });
+  document.getElementById('pieSelector').classList.toggle('hidden', type !== 'pie');
+  renderChart();
+}
+
+function renderChart() {
+  if (!currentResult) return;
+  if (currentChartType === 'pie') {
+    populatePieSelector();
+    renderPieChart();
+  } else {
+    document.getElementById('pieSelector').classList.add('hidden');
+    renderBarChart();
+  }
+}
+
+function renderBarChart() {
+  const { data, attrValues, dimension, level, metric } = currentResult;
+  if (mainChartInstance) mainChartInstance.destroy();
+
+  const isHorizontal = currentChartType === 'bar-h';
+  const labels = data.map(r => r.category);
+
+  const datasets = attrValues.map((attr, i) => ({
+    label: attr,
+    data: data.map(r => r[attr] || 0),
+    backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+  }));
+
+  const canvas = document.getElementById('mainChart');
+  canvas.style.height = isHorizontal ? Math.max(400, data.length * 40) + 'px' : '500px';
+
+  mainChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      indexAxis: isHorizontal ? 'y' : 'x',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: `${dimension} / ${level} / ${metric} 분포`, font: { size: 16 } },
+        legend: { position: 'top' },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)}%` } },
+      },
+      scales: {
+        x: { stacked: true, ...(isHorizontal ? { max: 100, title: { display: true, text: '비율 (%)' } } : {}) },
+        y: { stacked: true, ...(!isHorizontal ? { max: 100, title: { display: true, text: '비율 (%)' } } : {}) },
+      },
+    },
+  });
+}
+
+function populatePieSelector() {
+  if (!currentResult) return;
+  const sel = document.getElementById('selPieCategory');
+  sel.innerHTML = currentResult.data.map(r => `<option value="${r.category}">${r.category}</option>`).join('');
+}
+
+function renderPieChart() {
+  if (!currentResult) return;
+  const category = document.getElementById('selPieCategory').value;
+  const row = currentResult.data.find(r => r.category === category);
+  if (!row) return;
+
+  if (mainChartInstance) mainChartInstance.destroy();
+
+  const labels = currentResult.attrValues;
+  const values = labels.map(a => row[a] || 0);
+
+  const canvas = document.getElementById('mainChart');
+  canvas.style.height = '500px';
+
+  mainChartInstance = new Chart(canvas, {
+    type: 'pie',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: CHART_COLORS.slice(0, labels.length) }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: `${category} 고객 프로파일`, font: { size: 16 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw.toFixed(1)}%` } },
+      },
+    },
+  });
+}
+
+// ───────────────────────────────────────
+// Integrated View
+// ───────────────────────────────────────
+function renderIntegrated() {
+  const container = document.getElementById('integratedContent');
+  const dims = Object.keys(profileData);
+
+  if (dims.length < 2) {
+    container.innerHTML = '<div class="info-box">통합 분석을 위해 2개 이상의 프로파일 파일을 업로드하세요.</div>';
+    return;
+  }
+
+  const level = document.getElementById('selLevel').value;
+  const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
+  const groupCol = level === '상품' ? '상품명' : level;
+
+  // Get categories from first dimension
+  const firstDf = profileData[dims[0]].df;
+  const categories = [...new Set(firstDf.map(r => r[groupCol]).filter(Boolean))].sort();
+
+  if (categories.length === 0) {
+    container.innerHTML = '<div class="info-box">해당 집계 수준에 카테고리가 없습니다.</div>';
+    return;
+  }
+
+  let html = `
+    <div class="control-group" style="max-width:300px; margin-bottom:20px;">
+      <label>카테고리 선택</label>
+      <select id="selIntCategory" onchange="renderIntegratedDetail()">
+        ${categories.map(c => `<option value="${c}">${c}</option>`).join('')}
+      </select>
+    </div>
+    <div id="integratedDetail"></div>
+  `;
+  container.innerHTML = html;
+  renderIntegratedDetail();
+}
+
+function renderIntegratedDetail() {
+  const category = document.getElementById('selIntCategory').value;
+  const level = document.getElementById('selLevel').value;
+  const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
+  const groupCol = level === '상품' ? '상품명' : level;
+  const container = document.getElementById('integratedDetail');
+
+  let html = '<div class="integrated-grid">';
+
+  for (const [dim, data] of Object.entries(profileData)) {
+    const filtered = data.df.filter(r => r[groupCol] === category);
+    let work = filtered;
+    if (excludeUnknown) work = work.filter(r => r.attribute_value !== UNKNOWN_VALUE);
+
+    // Sum by attribute_value
+    const sums = {};
+    for (const r of work) {
+      const attr = r.attribute_value;
+      sums[attr] = (sums[attr] || 0) + safeNum(r[currentMetric]);
+    }
+    const total = Object.values(sums).reduce((s, v) => s + v, 0);
+
+    // Sort by value descending
+    const sorted = Object.entries(sums).sort((a, b) => b[1] - a[1]);
+
+    html += `<div class="integrated-card"><h4>${dim}</h4>`;
+    if (sorted.length === 0) {
+      html += '<div class="info-box">데이터 없음</div>';
+    } else {
+      for (const [attr, val] of sorted) {
+        const pct = total > 0 ? (val / total * 100) : 0;
+        html += `
+          <div class="attr-bar">
+            <div class="name">${attr}</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:${pct}%; background:${CHART_COLORS[sorted.indexOf([attr,val]) % CHART_COLORS.length]}"></div></div>
+            <div class="pct">${pct.toFixed(1)}%</div>
+          </div>
+        `;
+      }
+      html += `<div style="text-align:right; font-size:12px; color:#999; margin-top:8px;">합계: ${total.toLocaleString()}</div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Fix bar colors (the indexOf trick won't work with array comparison)
+  setTimeout(() => {
+    document.querySelectorAll('.integrated-card').forEach((card, ci) => {
+      card.querySelectorAll('.bar-fill').forEach((bar, bi) => {
+        bar.style.background = CHART_COLORS[bi % CHART_COLORS.length];
+      });
+    });
+  }, 0);
+}
+
+// ───────────────────────────────────────
+// Excel Export
+// ───────────────────────────────────────
+function exportExcel() {
+  if (!currentResult) return;
+  const { data, attrValues, dimension, level, metric } = currentResult;
+
+  const rows = data.map(row => {
+    const r = { '카테고리': row.category };
+    for (const attr of attrValues) {
+      r[attr] = (row[attr] || 0) / 100;  // decimal for percentage format
+    }
+    r['합계'] = row['합계'] || 0;
+    return r;
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+
+  // Set percentage format for attribute columns
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = range.s.r + 1; R <= range.e.r; R++) {
+    for (let C = 1; C <= attrValues.length; C++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+      if (cell) cell.z = '0.0%';
+    }
+    // Number format for total
+    const totalCell = ws[XLSX.utils.encode_cell({ r: R, c: attrValues.length + 1 })];
+    if (totalCell) totalCell.z = '#,##0';
+  }
+
+  // Column widths
+  ws['!cols'] = [{ wch: 25 }, ...attrValues.map(() => ({ wch: 14 })), { wch: 15 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `${dimension}_${level}`);
+  XLSX.writeFile(wb, `고객프로파일_${dimension}_${level}_${metric}.xlsx`);
+}
+</script>
+</body>
+</html>

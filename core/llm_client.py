@@ -12,6 +12,14 @@ from prompts.cause_extraction import (
     SYSTEM_PROMPT, BATCH_TEMPLATE, CASE_ITEM_TEMPLATE, EXTRACTION_TOOL,
 )
 from prompts.report_writing import REPORT_SYSTEM, REPORT_USER_TEMPLATE, REPORT_TOOL
+from prompts.product_extraction import (
+    SYSTEM_PROMPT as PRODUCT_SYSTEM,
+    USER_TEMPLATE as PRODUCT_USER_TEMPLATE,
+    EXTRACTION_TOOL as PRODUCT_TOOL,
+    COMPARISON_SYSTEM,
+    COMPARISON_USER_TEMPLATE,
+    COMPARISON_TOOL,
+)
 
 load_dotenv()
 
@@ -129,6 +137,151 @@ def generate_report(report_context: dict) -> dict:
             return block.input
 
     return {"report_text": "", "key_findings": []}
+
+
+def extract_product_info(url: str, structured_data: str, page_content: str,
+                         fallback_image: str = "") -> dict:
+    """제품 페이지에서 정보 추출.
+
+    Args:
+        url: 원본 URL
+        structured_data: JSON-LD / 메타태그 데이터 (문자열)
+        page_content: 정제된 HTML 본문
+        fallback_image: scraper에서 미리 추출한 이미지 URL
+
+    Returns:
+        {"product_name": str, "brand": str, "price": int, ...}
+    """
+    client = _get_client()
+
+    user_message = PRODUCT_USER_TEMPLATE.format(
+        url=url,
+        structured_data=structured_data,
+        page_content=page_content,
+    )
+
+    def _call():
+        return client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=2048,
+            system=PRODUCT_SYSTEM,
+            messages=[{"role": "user", "content": user_message}],
+            tools=[PRODUCT_TOOL],
+            tool_choice={"type": "tool", "name": "submit_product_info"},
+        )
+
+    response = _call_with_retry(_call)
+
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "submit_product_info":
+            result = block.input
+            # scraper에서 추출한 이미지 URL로 보완
+            if fallback_image and not result.get("image_url"):
+                result["image_url"] = fallback_image
+            return result
+
+    return {"product_name": "추출 실패", "brand": "정보 없음", "price": 0,
+            "price_display": "정보 없음", "image_url": fallback_image,
+            "country_of_origin": "정보 없음", "materials": "정보 없음",
+            "size": "정보 없음", "review_summary": {}, "notable_features": []}
+
+
+def compare_products(products: list[dict]) -> dict:
+    """여러 제품 비교 분석 (USP 도출).
+
+    Args:
+        products: extract_product_info() 결과 리스트
+
+    Returns:
+        {"products_analysis": [...], "market_summary": str, "recommendation": str}
+    """
+    client = _get_client()
+
+    products_text = ""
+    for i, p in enumerate(products, 1):
+        review = p.get("review_summary", {})
+        products_text += (
+            f"\n[제품 {i}]\n"
+            f"제품명: {p.get('product_name', '정보 없음')}\n"
+            f"브랜드: {p.get('brand', '정보 없음')}\n"
+            f"가격: {p.get('price_display', '정보 없음')}\n"
+            f"소재: {p.get('materials', '정보 없음')}\n"
+            f"크기: {p.get('size', '정보 없음')}\n"
+            f"리뷰 요약: {review.get('summary_text', '정보 없음')}\n"
+            f"주요 특징: {', '.join(p.get('notable_features', []))}\n"
+        )
+
+    user_message = COMPARISON_USER_TEMPLATE.format(
+        count=len(products), products_text=products_text
+    )
+
+    def _call():
+        return client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=COMPARISON_SYSTEM,
+            messages=[{"role": "user", "content": user_message}],
+            tools=[COMPARISON_TOOL],
+            tool_choice={"type": "tool", "name": "submit_comparison"},
+        )
+
+    response = _call_with_retry(_call)
+
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "submit_comparison":
+            return block.input
+
+    return {"products_analysis": [], "market_summary": "", "recommendation": ""}
+
+
+def extract_products_batch(urls_and_content: list[dict],
+                           progress_callback=None) -> list[dict]:
+    """여러 제품을 순차 추출 (rate limit 고려).
+
+    Args:
+        urls_and_content: [{"url": str, "structured_data": str,
+                            "page_content": str, "image_url": str}, ...]
+        progress_callback: (current, total, phase) -> None
+
+    Returns:
+        [{"url": str, ...extracted fields..., "error": bool}, ...]
+    """
+    results = []
+    total = len(urls_and_content)
+
+    for i, item in enumerate(urls_and_content):
+        try:
+            extracted = extract_product_info(
+                url=item["url"],
+                structured_data=item["structured_data"],
+                page_content=item["page_content"],
+                fallback_image=item.get("image_url", ""),
+            )
+            extracted["url"] = item["url"]
+            extracted["error"] = False
+            results.append(extracted)
+        except Exception as e:
+            results.append({
+                "url": item["url"],
+                "product_name": "추출 실패",
+                "brand": "정보 없음",
+                "price": 0,
+                "price_display": "정보 없음",
+                "image_url": item.get("image_url", ""),
+                "country_of_origin": "정보 없음",
+                "materials": "정보 없음",
+                "options": [],
+                "size": "정보 없음",
+                "review_summary": {},
+                "notable_features": [],
+                "error": True,
+                "error_message": str(e),
+            })
+
+        if progress_callback:
+            progress_callback(i + 1, total, "extract")
+
+    return results
 
 
 def process_cases_in_batches(all_cases: list[dict], tag_dictionary: list[str],

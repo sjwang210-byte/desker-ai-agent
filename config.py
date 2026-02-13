@@ -48,3 +48,22 @@ COLUMN_DISPLAY_NAMES = {
 
 # ── 비용 시트 ──
 COST_SHEET_TOTAL_COLUMN = "전 체"   # 띄어쓰기 주의
+
+# ── 시장 스캐너 ──
+SCANNER_MAX_URLS = 10
+SCANNER_REQUEST_TIMEOUT = 15         # URL당 요청 제한시간 (초)
+SCANNER_MAX_HTML_LENGTH = 50_000     # Claude 전송용 HTML 최대 길이 (문자)
+SCANNER_CONCURRENT_FETCHES = 3       # 동시 HTTP 요청 수
+
+# ── 고객 프로파일 분석 ──
+PROFILE_DIMENSIONS = {
+    "자녀나이": ["초등학생", "미취학", "자녀없음", "중고등학생", "0-24개월", "성인", "(알수없음)"],
+    "결혼상태": ["기혼", "미혼", "(알수없음)"],
+    "가구당인원": ["2인이상", "1인", "(알수없음)"],
+}
+PROFILE_CATEGORY_LEVELS = ["대분류", "중분류", "소분류", "세분류", "상품"]
+PROFILE_CATEGORY_COLUMNS = ["대분류", "중분류", "소분류", "세분류", "상품명", "상품ID"]
+PROFILE_PAYMENT_METRICS = ["결제금액", "결제수", "결제상품수량"]
+PROFILE_REFUND_METRICS = ["환불금액", "환불건수", "환불수량"]
+PROFILE_DEFAULT_METRIC = "결제금액"
+PROFILE_UNKNOWN_VALUE = "(알수없음)"

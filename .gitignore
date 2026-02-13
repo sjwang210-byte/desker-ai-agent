@@ -24,3 +24,11 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 nul
+
+# Data files
+*.xlsx
+*.xls
+
+# GitHub CLI local install
+gh.zip
+gh_cli/

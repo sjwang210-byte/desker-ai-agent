@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>고객 프로파일 분석</title>
+<title>데스커 고객 분석</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
@@ -318,6 +318,59 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
   color: white;
   border-color: var(--primary);
 }
+
+/* Main Navigation */
+.main-nav { display:flex; gap:0; margin-bottom:24px; background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+.main-nav button { flex:1; padding:14px 24px; border:none; background:white; font-size:15px; font-weight:600; color:var(--gray-500); cursor:pointer; font-family:inherit; transition:all 0.2s; border-bottom:3px solid transparent; }
+.main-nav button.active { color:var(--primary); background:var(--primary-light); border-bottom-color:var(--primary); }
+.main-nav button:hover:not(.active) { color:var(--primary-dark); background:var(--gray-50); }
+
+/* Review Cards */
+.review-item { border:1px solid var(--gray-200); border-radius:var(--radius); padding:16px; margin-bottom:12px; transition:box-shadow 0.2s; }
+.review-item:hover { box-shadow:var(--shadow-md); }
+.review-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
+.stars { color:#FFC107; font-size:14px; letter-spacing:1px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.badge-month { background:#E8F5E9; color:#2E7D32; }
+.badge-best { background:#FFF3E0; color:#E65100; }
+.badge-photo { background:#E3F2FD; color:#1565C0; }
+.review-product { font-size:12px; color:var(--gray-500); margin-bottom:4px; }
+.review-body { font-size:14px; line-height:1.7; margin-bottom:8px; word-break:break-word; }
+.review-photos { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.review-photos img { width:80px; height:80px; object-fit:cover; border-radius:6px; cursor:pointer; border:1px solid var(--gray-200); }
+.review-photos img:hover { border-color:var(--primary); }
+.review-meta { font-size:12px; color:var(--gray-500); display:flex; gap:16px; flex-wrap:wrap; }
+
+/* Gallery */
+.gallery-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+.gallery-item { position:relative; border-radius:var(--radius); overflow:hidden; aspect-ratio:1; cursor:pointer; }
+.gallery-item img { width:100%; height:100%; object-fit:cover; transition:transform 0.2s; }
+.gallery-item:hover img { transform:scale(1.05); }
+.gallery-caption { position:absolute; bottom:0; left:0; right:0; padding:6px 8px; background:linear-gradient(transparent, rgba(0,0,0,0.7)); color:white; font-size:11px; }
+
+/* Pagination */
+.pagination { display:flex; justify-content:center; gap:4px; margin-top:20px; flex-wrap:wrap; }
+.pagination button { min-width:36px; height:36px; border:1px solid var(--gray-300); border-radius:6px; background:white; font-size:13px; cursor:pointer; font-family:inherit; }
+.pagination button.active { background:var(--primary); color:white; border-color:var(--primary); }
+.pagination button:hover:not(.active) { background:var(--gray-100); }
+
+/* Review Summary */
+.review-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(100px, 1fr)); gap:12px; margin-top:16px; }
+.summary-item { text-align:center; padding:12px; background:var(--gray-100); border-radius:6px; }
+.summary-item .num { font-size:20px; font-weight:700; color:var(--primary); }
+.summary-item .lbl { font-size:11px; color:var(--gray-500); }
+
+/* Product search list */
+.product-list { max-height:250px; overflow-y:auto; border:1px solid var(--gray-200); border-radius:6px; margin-top:8px; }
+.product-item { padding:10px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--gray-100); display:flex; justify-content:space-between; align-items:center; }
+.product-item:hover { background:var(--primary-light); }
+.product-item.selected { background:var(--primary-light); font-weight:600; color:var(--primary); }
+.product-item .cnt { font-size:12px; color:var(--gray-500); }
+
+/* Image modal */
+.img-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:1000; background:rgba(0,0,0,0.85); justify-content:center; align-items:center; cursor:pointer; }
+.img-modal.show { display:flex; }
+.img-modal img { max-width:90vw; max-height:90vh; border-radius:8px; }
 </style>
 </head>
 <body>
@@ -325,9 +378,18 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 
 <!-- Header -->
 <div class="header">
-  <h1>고객 프로파일 분석</h1>
-  <p>상품별 고객 프로파일(자녀나이, 결혼상태, 가구당인원) 데이터를 업로드하고 카테고리별 비중을 분석합니다.</p>
+  <h1>데스커 고객 분석</h1>
+  <p>고객 프로파일 및 리뷰 데이터를 분석합니다.</p>
 </div>
+
+<!-- Main Navigation -->
+<div class="main-nav">
+  <button class="active" onclick="switchMainTab('profile')">고객 프로파일 분석</button>
+  <button onclick="switchMainTab('review')">리뷰 분석</button>
+</div>
+
+<!-- ============ Profile Section ============ -->
+<div id="main-profile">
 
 <!-- Section 1: Upload -->
 <div class="card">
@@ -468,7 +530,132 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
   </div>
 </div>
 
+</div><!-- /main-profile -->
+
+<!-- ============ Review Section ============ -->
+<div id="main-review" style="display:none;">
+
+<!-- Review Upload -->
+<div class="card">
+  <h2>1. 리뷰 데이터 업로드</h2>
+  <div class="upload-area" id="reviewUploadArea">
+    <div class="icon">📝</div>
+    <p><b>클릭하거나 파일을 드래그</b>하여 리뷰 엑셀 파일을 업로드하세요</p>
+    <p style="font-size:12px; margin-top:8px; color:#999;">네이버 스토어 리뷰 다운로드 파일 (.xlsx)</p>
+    <input type="file" id="reviewFileInput" accept=".xlsx,.xls">
+  </div>
+  <div id="reviewUploadStatus" class="hidden" style="margin-top:12px;">
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <span id="reviewFileName" style="font-size:13px; color:var(--gray-700);"></span>
+      <span id="reviewRowCount" class="badge badge-month"></span>
+      <span id="reviewProductCount" class="badge badge-photo"></span>
+    </div>
+  </div>
 </div>
+
+<!-- Review Filter + Results -->
+<div class="card hidden" id="reviewControlCard">
+  <h2>2. 상품 선택 및 필터</h2>
+  <div style="display:grid; grid-template-columns:350px 1fr; gap:24px;">
+    <!-- Left: Product filter -->
+    <div>
+      <div class="control-group">
+        <label>상품 검색</label>
+        <input type="text" id="reviewProductSearch" placeholder="상품번호 또는 상품명 검색..."
+          oninput="filterReviewProducts()"
+          style="width:100%; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+      </div>
+      <div class="product-list" id="reviewProductList"></div>
+      <div style="margin-top:8px; font-size:12px; color:var(--gray-500);">
+        <span id="reviewFilteredCount">0</span>개 상품 표시 중 |
+        <a href="#" onclick="selectAllReviewProducts(); return false;" style="color:var(--primary);">전체 선택</a>
+      </div>
+    </div>
+    <!-- Right: Filters + sort -->
+    <div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="control-group">
+          <label>리뷰 유형</label>
+          <div class="radio-group" id="reviewTypeGroup">
+            <label class="active" onclick="selectReviewType(this, 'all')"><span>전체</span></label>
+            <label onclick="selectReviewType(this, 'general')"><span>일반</span></label>
+            <label onclick="selectReviewType(this, 'month')"><span>한달사용</span></label>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>정렬</label>
+          <select id="reviewSort" onchange="renderReviewList()" style="padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+            <option value="date-desc">최신순</option>
+            <option value="date-asc">오래된순</option>
+            <option value="rating-desc">평점 높은순</option>
+            <option value="rating-asc">평점 낮은순</option>
+            <option value="helpful-desc">도움수 높은순</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>평점 필터</label>
+          <select id="reviewRatingFilter" onchange="renderReviewList()" style="padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+            <option value="all">전체</option>
+            <option value="5">★★★★★ (5)</option>
+            <option value="4">★★★★☆ (4)</option>
+            <option value="3">★★★☆☆ (3)</option>
+            <option value="2">★★☆☆☆ (2)</option>
+            <option value="1">★☆☆☆☆ (1)</option>
+          </select>
+        </div>
+      </div>
+      <!-- Review summary metrics -->
+      <div class="review-summary" id="reviewSummary"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Review Results -->
+<div class="card hidden" id="reviewResultCard">
+  <h2>3. 분석 결과</h2>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchReviewTab('list')">리뷰 리스트</button>
+    <button class="tab-btn" onclick="switchReviewTab('keywords')">키워드 분석</button>
+    <button class="tab-btn" onclick="switchReviewTab('gallery')">사진 갤러리</button>
+  </div>
+
+  <!-- Review List -->
+  <div class="tab-content active" id="rtab-list">
+    <div id="reviewListContainer"></div>
+    <div class="pagination" id="reviewPagination"></div>
+  </div>
+
+  <!-- Keywords -->
+  <div class="tab-content" id="rtab-keywords">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div>
+        <h3 style="font-size:15px; margin-bottom:12px;">상위 키워드 (빈도순)</h3>
+        <div class="table-wrapper" id="keywordTable"></div>
+      </div>
+      <div>
+        <h3 style="font-size:15px; margin-bottom:12px;">키워드 빈도 차트</h3>
+        <div class="chart-container" style="height:400px;">
+          <canvas id="keywordChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gallery -->
+  <div class="tab-content" id="rtab-gallery">
+    <div class="gallery-grid" id="galleryGrid"></div>
+    <div class="pagination" id="galleryPagination"></div>
+  </div>
+</div>
+
+</div><!-- /main-review -->
+
+<!-- Image Modal -->
+<div class="img-modal" id="imgModal" onclick="closeImageModal()">
+  <img id="imgModalSrc" src="" alt="">
+</div>
+
+</div><!-- /container -->
 
 <script>
 // ───────────────────────────────────────
@@ -1533,6 +1720,484 @@ updateStatus = function() {
   _originalUpdateStatus();
   document.getElementById('btnSaveConvex').classList.toggle('hidden', Object.keys(profileData).length === 0);
 };
+
+// ───────────────────────────────────────
+// Main Tab Switch
+// ───────────────────────────────────────
+function switchMainTab(tab) {
+  document.querySelectorAll('.main-nav button').forEach((btn, i) => {
+    btn.classList.toggle('active', (tab === 'profile' && i === 0) || (tab === 'review' && i === 1));
+  });
+  document.getElementById('main-profile').style.display = tab === 'profile' ? '' : 'none';
+  document.getElementById('main-review').style.display = tab === 'review' ? '' : 'none';
+}
+
+// ───────────────────────────────────────
+// Review Analysis - State
+// ───────────────────────────────────────
+let reviewData = [];         // 전체 파싱된 리뷰 배열
+let reviewProducts = {};     // { 상품번호: { name, reviews: [...], count } }
+let selectedProductIds = []; // 선택된 상품번호 배열
+let reviewTypeFilter = 'all';
+let reviewPage = 1;
+const REVIEWS_PER_PAGE = 20;
+let galleryPage = 1;
+const GALLERY_PER_PAGE = 40;
+let keywordChartInstance = null;
+
+// 한국어 불용어
+const STOPWORDS = new Set([
+  '있다','없다','하다','되다','이다','것','수','등','더','안','잘','좀','정말','진짜','너무',
+  '아주','매우','그냥','다시','또','꽤','약간','조금','거의','많이','같다','보다','같은',
+  '그리고','그런데','하지만','그래서','그러나','때문','위해','대한','통해','에서','으로',
+  '에게','까지','부터','이런','그런','저런','어떤','모든','각','및','혹은','또는','이',
+  '그','저','것이','것을','것은','합니다','입니다','있는','없는','하는','된','한','할','들',
+  '좋은','좋아','좋고','좋습니다','좋아요','있어','있고','있습니다','해서','하고','했는데',
+  '인데','에요','구매','사용','제품','상품','배송','주문','구입','네이버','스토어','리뷰',
+  '이거','저거','그거','뭐','왜','어떻게','언제','어디','누구','무엇','아','음','응',
+]);
+
+// ───────────────────────────────────────
+// Review - File Upload
+// ───────────────────────────────────────
+const reviewUploadArea = document.getElementById('reviewUploadArea');
+const reviewFileInput = document.getElementById('reviewFileInput');
+
+reviewUploadArea.addEventListener('click', () => reviewFileInput.click());
+reviewUploadArea.addEventListener('dragover', (e) => { e.preventDefault(); reviewUploadArea.classList.add('dragover'); });
+reviewUploadArea.addEventListener('dragleave', () => reviewUploadArea.classList.remove('dragover'));
+reviewUploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  reviewUploadArea.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleReviewFile(e.dataTransfer.files[0]);
+});
+reviewFileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) handleReviewFile(e.target.files[0]);
+});
+
+function handleReviewFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (!rows.length) { alert('데이터가 없습니다.'); return; }
+
+    // 컬럼명 매핑 (유연하게 매칭)
+    const cols = Object.keys(rows[0]);
+    const colMap = {
+      productId:  cols.find(c => c.includes('상품번호')) || '상품번호',
+      productName: cols.find(c => c === '상품명' || c.includes('상품명')) || '상품명',
+      reviewType: cols.find(c => c.includes('리뷰구분') || c.includes('구분')) || '리뷰구분',
+      rating:     cols.find(c => c.includes('구매자평점') || c.includes('평점')) || '구매자평점',
+      hasPhoto:   cols.find(c => c.includes('포토') || c.includes('영상')) || '포토영상',
+      content:    cols.find(c => c.includes('리뷰상세') || c.includes('내용')) || '리뷰상세내용',
+      helpful:    cols.find(c => c.includes('도움수') || c.includes('도움')) || '리뷰도움수',
+      author:     cols.find(c => c.includes('등록자') || c.includes('작성자')) || '등록자',
+      date:       cols.find(c => c.includes('리뷰등록일') || c.includes('등록일')) || '리뷰등록일',
+      isBest:     cols.find(c => c.includes('베스트') || c.includes('BEST')) || '베스트리뷰',
+      photoUrls:  cols.find(c => c.includes('리뷰이미지') || c.includes('이미지URL') || c.includes('이미지')) || null,
+    };
+
+    // Parse all rows
+    reviewData = [];
+    reviewProducts = {};
+    for (const row of rows) {
+      const pid = String(row[colMap.productId] || '').trim();
+      if (!pid) continue;
+      const pname = String(row[colMap.productName] || '').trim();
+      const ratingRaw = row[colMap.rating];
+      const rating = typeof ratingRaw === 'number' ? ratingRaw : parseInt(ratingRaw) || 0;
+      const content = String(row[colMap.content] || '').trim();
+      const dateRaw = row[colMap.date];
+      let dateStr = '';
+      if (typeof dateRaw === 'number') {
+        // Excel serial date
+        const d = XLSX.SSF.parse_date_code(dateRaw);
+        if (d) dateStr = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+      } else {
+        dateStr = String(dateRaw || '').trim();
+      }
+      const reviewType = String(row[colMap.reviewType] || '').trim();
+      const isMonth = reviewType.includes('한달');
+      const hasPhotoRaw = String(row[colMap.hasPhoto] || '').trim();
+      const hasPhoto = hasPhotoRaw === 'Y' || hasPhotoRaw === '있음' || hasPhotoRaw.includes('포토');
+      const isBestRaw = String(row[colMap.isBest] || '').trim();
+      const isBest = isBestRaw === 'Y' || isBestRaw === '있음' || isBestRaw.includes('베스트');
+      const helpful = parseInt(row[colMap.helpful]) || 0;
+      const author = String(row[colMap.author] || '').trim();
+
+      // Parse image URLs (comma/pipe separated)
+      let photos = [];
+      if (colMap.photoUrls && row[colMap.photoUrls]) {
+        const urlStr = String(row[colMap.photoUrls]).trim();
+        if (urlStr) photos = urlStr.split(/[,|]/).map(u => u.trim()).filter(u => u.startsWith('http'));
+      }
+
+      const review = {
+        productId: pid, productName: pname, rating, content, date: dateStr,
+        reviewType, isMonth, hasPhoto, isBest, helpful, author, photos,
+      };
+      reviewData.push(review);
+
+      if (!reviewProducts[pid]) {
+        reviewProducts[pid] = { name: pname, reviews: [], count: 0 };
+      }
+      reviewProducts[pid].reviews.push(review);
+      reviewProducts[pid].count++;
+    }
+
+    // Update UI
+    document.getElementById('reviewUploadStatus').classList.remove('hidden');
+    document.getElementById('reviewFileName').textContent = file.name;
+    document.getElementById('reviewRowCount').textContent = `${reviewData.length.toLocaleString()}개 리뷰`;
+    document.getElementById('reviewProductCount').textContent = `${Object.keys(reviewProducts).length}개 상품`;
+
+    // Show controls
+    document.getElementById('reviewControlCard').classList.remove('hidden');
+    document.getElementById('reviewResultCard').classList.remove('hidden');
+
+    // Render product list
+    selectedProductIds = [];
+    filterReviewProducts();
+    renderReviewSummary();
+    renderReviewList();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ───────────────────────────────────────
+// Review - Product Filter
+// ───────────────────────────────────────
+function filterReviewProducts() {
+  const search = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
+  const listEl = document.getElementById('reviewProductList');
+  const entries = Object.entries(reviewProducts)
+    .filter(([pid, p]) => !search || pid.toLowerCase().includes(search) || p.name.toLowerCase().includes(search))
+    .sort((a, b) => b[1].count - a[1].count);
+
+  document.getElementById('reviewFilteredCount').textContent = entries.length;
+
+  // Render max 200 for performance
+  const show = entries.slice(0, 200);
+  listEl.innerHTML = show.map(([pid, p]) =>
+    `<div class="product-item ${selectedProductIds.includes(pid) ? 'selected' : ''}" onclick="toggleReviewProduct('${pid}')">
+      <span>${p.name} <span style="color:var(--gray-500); font-size:11px;">(${pid})</span></span>
+      <span class="cnt">${p.count}건</span>
+    </div>`
+  ).join('');
+  if (entries.length > 200) {
+    listEl.innerHTML += `<div style="padding:8px 12px; font-size:12px; color:var(--gray-500); text-align:center;">외 ${entries.length - 200}개 상품...</div>`;
+  }
+}
+
+function toggleReviewProduct(pid) {
+  const idx = selectedProductIds.indexOf(pid);
+  if (idx >= 0) selectedProductIds.splice(idx, 1);
+  else selectedProductIds.push(pid);
+  filterReviewProducts();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+  renderKeywords();
+  renderGallery();
+}
+
+function selectAllReviewProducts() {
+  const search = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
+  selectedProductIds = Object.entries(reviewProducts)
+    .filter(([pid, p]) => !search || pid.toLowerCase().includes(search) || p.name.toLowerCase().includes(search))
+    .map(([pid]) => pid);
+  filterReviewProducts();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+  renderKeywords();
+  renderGallery();
+}
+
+// ───────────────────────────────────────
+// Review - Get Filtered Reviews
+// ───────────────────────────────────────
+function getFilteredReviews() {
+  let reviews = reviewData;
+
+  // Filter by selected products
+  if (selectedProductIds.length > 0) {
+    const pidSet = new Set(selectedProductIds);
+    reviews = reviews.filter(r => pidSet.has(r.productId));
+  }
+
+  // Filter by review type
+  if (reviewTypeFilter === 'month') {
+    reviews = reviews.filter(r => r.isMonth);
+  } else if (reviewTypeFilter === 'general') {
+    reviews = reviews.filter(r => !r.isMonth);
+  }
+
+  // Filter by rating
+  const ratingFilter = document.getElementById('reviewRatingFilter')?.value;
+  if (ratingFilter && ratingFilter !== 'all') {
+    const rat = parseInt(ratingFilter);
+    reviews = reviews.filter(r => r.rating === rat);
+  }
+
+  // Sort
+  const sort = document.getElementById('reviewSort')?.value || 'date-desc';
+  reviews.sort((a, b) => {
+    switch (sort) {
+      case 'date-desc': return (b.date || '').localeCompare(a.date || '');
+      case 'date-asc': return (a.date || '').localeCompare(b.date || '');
+      case 'rating-desc': return b.rating - a.rating;
+      case 'rating-asc': return a.rating - b.rating;
+      case 'helpful-desc': return b.helpful - a.helpful;
+      default: return 0;
+    }
+  });
+
+  return reviews;
+}
+
+// ───────────────────────────────────────
+// Review - Type Filter
+// ───────────────────────────────────────
+function selectReviewType(el, type) {
+  reviewTypeFilter = type;
+  document.querySelectorAll('#reviewTypeGroup label').forEach(l => l.classList.remove('active'));
+  el.classList.add('active');
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+  renderKeywords();
+  renderGallery();
+}
+
+// ───────────────────────────────────────
+// Review - Summary Metrics
+// ───────────────────────────────────────
+function renderReviewSummary() {
+  const reviews = getFilteredReviews();
+  const totalCount = reviews.length;
+  const avgRating = totalCount > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / totalCount).toFixed(1) : '-';
+  const photoCount = reviews.filter(r => r.hasPhoto).length;
+  const monthCount = reviews.filter(r => r.isMonth).length;
+  const bestCount = reviews.filter(r => r.isBest).length;
+
+  document.getElementById('reviewSummary').innerHTML = `
+    <div class="summary-item"><div class="num">${totalCount.toLocaleString()}</div><div class="lbl">리뷰 수</div></div>
+    <div class="summary-item"><div class="num">${avgRating}</div><div class="lbl">평균 평점</div></div>
+    <div class="summary-item"><div class="num">${photoCount.toLocaleString()}</div><div class="lbl">포토 리뷰</div></div>
+    <div class="summary-item"><div class="num">${monthCount.toLocaleString()}</div><div class="lbl">한달사용</div></div>
+    <div class="summary-item"><div class="num">${bestCount.toLocaleString()}</div><div class="lbl">베스트</div></div>
+  `;
+}
+
+// ───────────────────────────────────────
+// Review - List Rendering
+// ───────────────────────────────────────
+function renderReviewList() {
+  const reviews = getFilteredReviews();
+  const totalPages = Math.ceil(reviews.length / REVIEWS_PER_PAGE) || 1;
+  if (reviewPage > totalPages) reviewPage = totalPages;
+  const start = (reviewPage - 1) * REVIEWS_PER_PAGE;
+  const pageReviews = reviews.slice(start, start + REVIEWS_PER_PAGE);
+
+  const container = document.getElementById('reviewListContainer');
+  if (pageReviews.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500);">표시할 리뷰가 없습니다. 상품을 선택해주세요.</div>';
+    document.getElementById('reviewPagination').innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = pageReviews.map(r => {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    const badges = [];
+    if (r.isMonth) badges.push('<span class="badge badge-month">한달사용</span>');
+    if (r.isBest) badges.push('<span class="badge badge-best">베스트</span>');
+    if (r.hasPhoto) badges.push('<span class="badge badge-photo">포토</span>');
+
+    const photoHtml = r.photos.length > 0
+      ? `<div class="review-photos">${r.photos.slice(0, 5).map(u => `<img src="${u}" alt="리뷰 이미지" onclick="event.stopPropagation(); openImageModal('${u}')" onerror="this.style.display='none'">`).join('')}</div>`
+      : '';
+
+    return `<div class="review-item">
+      <div class="review-header">
+        <span class="stars">${stars}</span>
+        ${badges.join(' ')}
+      </div>
+      <div class="review-product">${r.productName} (${r.productId})</div>
+      <div class="review-body">${escapeHtml(r.content || '(내용 없음)')}</div>
+      ${photoHtml}
+      <div class="review-meta">
+        <span>${r.author || '익명'}</span>
+        <span>${r.date || '-'}</span>
+        ${r.helpful > 0 ? `<span>도움 ${r.helpful}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Pagination
+  renderPagination('reviewPagination', reviewPage, totalPages, (p) => { reviewPage = p; renderReviewList(); });
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderPagination(containerId, currentPage, totalPages, onPageClick) {
+  const el = document.getElementById(containerId);
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+
+  let buttons = [];
+  if (currentPage > 1) buttons.push(`<button onclick="void(0)" data-page="${currentPage - 1}">◀</button>`);
+
+  // Show max 7 page buttons
+  let startP = Math.max(1, currentPage - 3);
+  let endP = Math.min(totalPages, startP + 6);
+  if (endP - startP < 6) startP = Math.max(1, endP - 6);
+
+  for (let p = startP; p <= endP; p++) {
+    buttons.push(`<button class="${p === currentPage ? 'active' : ''}" onclick="void(0)" data-page="${p}">${p}</button>`);
+  }
+
+  if (currentPage < totalPages) buttons.push(`<button onclick="void(0)" data-page="${currentPage + 1}">▶</button>`);
+
+  el.innerHTML = `<span style="font-size:12px; color:var(--gray-500); margin-right:8px;">${totalPages}페이지 중 ${currentPage}</span>` + buttons.join('');
+  el.querySelectorAll('button[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => onPageClick(parseInt(btn.dataset.page)));
+  });
+}
+
+// ───────────────────────────────────────
+// Review - Keyword Analysis
+// ───────────────────────────────────────
+function renderKeywords() {
+  const reviews = getFilteredReviews();
+  const freq = {};
+
+  for (const r of reviews) {
+    if (!r.content) continue;
+    // Simple Korean word tokenization: split by space and filter
+    const words = r.content
+      .replace(/[^가-힣a-zA-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !STOPWORDS.has(w));
+    const seen = new Set(); // count each word once per review
+    for (const w of words) {
+      if (seen.has(w)) continue;
+      seen.add(w);
+      freq[w] = (freq[w] || 0) + 1;
+    }
+  }
+
+  const sorted = Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 50);
+
+  // Table
+  const tableEl = document.getElementById('keywordTable');
+  if (sorted.length === 0) {
+    tableEl.innerHTML = '<div style="padding:20px; text-align:center; color:var(--gray-500);">키워드 데이터 없음</div>';
+  } else {
+    const maxFreq = sorted[0][1];
+    tableEl.innerHTML = `<table><thead><tr><th style="width:40px;">#</th><th>키워드</th><th style="width:80px;">빈도</th><th>비율</th></tr></thead><tbody>
+      ${sorted.slice(0, 30).map(([word, cnt], i) =>
+        `<tr><td>${i + 1}</td><td>${word}</td><td>${cnt}</td>
+        <td><div style="background:var(--primary-light); border-radius:3px; height:18px; width:${Math.round(cnt / maxFreq * 100)}%;">
+          <div style="background:var(--primary); height:100%; border-radius:3px; width:100%;"></div>
+        </div></td></tr>`
+      ).join('')}
+    </tbody></table>`;
+  }
+
+  // Chart
+  if (keywordChartInstance) { keywordChartInstance.destroy(); keywordChartInstance = null; }
+  const top20 = sorted.slice(0, 20);
+  if (top20.length > 0) {
+    const ctx = document.getElementById('keywordChart').getContext('2d');
+    keywordChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: top20.map(([w]) => w),
+        datasets: [{
+          label: '빈도',
+          data: top20.map(([, c]) => c),
+          backgroundColor: CHART_COLORS.slice(0, top20.length).concat(Array(Math.max(0, top20.length - CHART_COLORS.length)).fill('#90CAF9')),
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+          y: { grid: { display: false } },
+        },
+      },
+    });
+  }
+}
+
+// ───────────────────────────────────────
+// Review - Photo Gallery
+// ───────────────────────────────────────
+function renderGallery() {
+  const reviews = getFilteredReviews().filter(r => r.photos.length > 0);
+  const allPhotos = [];
+  for (const r of reviews) {
+    for (const url of r.photos) {
+      allPhotos.push({ url, productName: r.productName, rating: r.rating, date: r.date });
+    }
+  }
+
+  const totalPages = Math.ceil(allPhotos.length / GALLERY_PER_PAGE) || 1;
+  if (galleryPage > totalPages) galleryPage = totalPages;
+  const start = (galleryPage - 1) * GALLERY_PER_PAGE;
+  const pagePhotos = allPhotos.slice(start, start + GALLERY_PER_PAGE);
+
+  const grid = document.getElementById('galleryGrid');
+  if (pagePhotos.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--gray-500);">사진이 있는 리뷰가 없습니다.</div>';
+  } else {
+    grid.innerHTML = pagePhotos.map(p =>
+      `<div class="gallery-item" onclick="openImageModal('${p.url}')">
+        <img src="${p.url}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
+        <div class="gallery-caption">${'★'.repeat(p.rating)} ${p.productName.substring(0, 20)}</div>
+      </div>`
+    ).join('');
+  }
+
+  renderPagination('galleryPagination', galleryPage, totalPages, (p) => { galleryPage = p; renderGallery(); });
+}
+
+// ───────────────────────────────────────
+// Review - Image Modal
+// ───────────────────────────────────────
+function openImageModal(url) {
+  document.getElementById('imgModalSrc').src = url;
+  document.getElementById('imgModal').classList.add('show');
+}
+function closeImageModal() {
+  document.getElementById('imgModal').classList.remove('show');
+  document.getElementById('imgModalSrc').src = '';
+}
+
+// ───────────────────────────────────────
+// Review - Tab Switch
+// ───────────────────────────────────────
+function switchReviewTab(tab) {
+  document.querySelectorAll('#reviewResultCard .tab-btn').forEach((btn, i) => {
+    const tabs = ['list', 'keywords', 'gallery'];
+    btn.classList.toggle('active', tabs[i] === tab);
+  });
+  ['list', 'keywords', 'gallery'].forEach(t => {
+    document.getElementById('rtab-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'keywords') renderKeywords();
+  if (tab === 'gallery') renderGallery();
+}
 
 // 페이지 로드 시 기간 목록 자동 불러오기
 refreshPeriods();

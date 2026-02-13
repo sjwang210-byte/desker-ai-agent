@@ -1,0 +1,118 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  // ─────────────────────────────────────────
+  // 1. 업로드 세션: 엑셀 파일 3종을 묶는 단위
+  // ─────────────────────────────────────────
+  uploadSessions: defineTable({
+    periodStart: v.string(),     // "2025-07-01"
+    periodEnd: v.string(),       // "2025-12-31"
+    uploadedAt: v.number(),      // Date.now() timestamp
+    files: v.array(v.object({
+      dimension: v.string(),     // "자녀나이" | "결혼상태" | "가구당인원"
+      filename: v.string(),
+      rowCount: v.number(),
+    })),
+    status: v.string(),          // "partial" | "complete"
+  })
+    .index("by_period", ["periodStart", "periodEnd"])
+    .index("by_uploadedAt", ["uploadedAt"]),
+
+  // ─────────────────────────────────────────
+  // 2. 상품 카테고리 계층 (3단계: 대/중/소)
+  //    실제 컬럼: 상품카테고리(대), (중), (소)
+  //    세분류는 대부분 "-"이므로 제외
+  // ─────────────────────────────────────────
+  productCategories: defineTable({
+    categoryL1: v.string(),      // 상품카테고리(대): 3종 — 가구/인테리어, 디지털/가전, 생활/건강
+    categoryL2: v.string(),      // 상품카테고리(중): 11종 — 아동/주니어가구, 서재/사무용가구 등
+    categoryL3: v.string(),      // 상품카테고리(소): 22종 — 책상, 책장, 의자 등
+  })
+    .index("by_hierarchy", ["categoryL1", "categoryL2", "categoryL3"])
+    .index("by_L1", ["categoryL1"])
+    .index("by_L1_L2", ["categoryL1", "categoryL2"]),
+
+  // ─────────────────────────────────────────
+  // 3. 상품 마스터
+  // ─────────────────────────────────────────
+  products: defineTable({
+    productId: v.float64(),      // 상품ID: 9423118946 (10자리 — JS safe integer 범위)
+    productName: v.string(),     // 상품명
+    categoryId: v.id("productCategories"),
+  })
+    .index("by_productId", ["productId"])
+    .index("by_category", ["categoryId"]),
+
+  // ─────────────────────────────────────────
+  // 4. 프로파일 레코드 (핵심 — 엑셀 각 행)
+  // ─────────────────────────────────────────
+  profileRecords: defineTable({
+    sessionId: v.id("uploadSessions"),
+    productId: v.id("products"),
+
+    dimension: v.string(),       // "자녀나이" | "결혼상태" | "가구당인원"
+    attributeValue: v.string(),  // "초등학생", "기혼", "2인이상" 등
+
+    // 결제 지표
+    paymentAmount: v.float64(),  // 결제금액 (int64 → float64 for JS)
+    paymentCount: v.number(),    // 결제수
+    paymentQuantity: v.number(), // 결제상품수량
+
+    // 환불 지표
+    refundAmount: v.float64(),   // 환불금액 (과학적 표기법 3.847587e+08)
+    refundCount: v.number(),     // 환불건수
+    refundQuantity: v.number(),  // 환불수량
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_session_dimension", ["sessionId", "dimension"])
+    .index("by_product", ["productId"])
+    .index("by_dimension_attribute", ["dimension", "attributeValue"]),
+
+  // ─────────────────────────────────────────
+  // 5. 분석 결과 저장 (캐싱/공유용)
+  // ─────────────────────────────────────────
+  analysisResults: defineTable({
+    sessionId: v.id("uploadSessions"),
+    dimension: v.string(),       // "자녀나이" | "결혼상태" | "가구당인원"
+    aggregationLevel: v.string(),// "상품카테고리(대)" | "(중)" | "(소)" | "상품"
+    metric: v.string(),          // "결제금액" | "결제수" | "결제상품수량"
+    excludeUnknown: v.boolean(),
+    resultData: v.array(v.object({
+      category: v.string(),
+      total: v.float64(),
+      distribution: v.array(v.object({
+        attributeValue: v.string(),
+        percentage: v.float64(),   // 0-100
+        absoluteValue: v.float64(),
+      })),
+    })),
+    createdAt: v.number(),
+    createdBy: v.optional(v.string()),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_params", ["sessionId", "dimension", "aggregationLevel", "metric"]),
+
+  // ─────────────────────────────────────────
+  // 6. 통합 분석 결과 (3차원 동시 분석)
+  // ─────────────────────────────────────────
+  integratedAnalysis: defineTable({
+    sessionId: v.id("uploadSessions"),
+    aggregationLevel: v.string(),
+    category: v.string(),
+    metric: v.string(),
+    excludeUnknown: v.boolean(),
+    dimensions: v.array(v.object({
+      dimension: v.string(),
+      total: v.float64(),
+      distribution: v.array(v.object({
+        attributeValue: v.string(),
+        percentage: v.float64(),
+        absoluteValue: v.float64(),
+      })),
+    })),
+    createdAt: v.number(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_category", ["sessionId", "aggregationLevel", "category"]),
+});

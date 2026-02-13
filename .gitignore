@@ -32,3 +32,13 @@ nul
 # GitHub CLI local install
 gh.zip
 gh_cli/
+
+.env.local
+
+# Node
+node_modules/
+
+# Temp scripts
+*.ps1
+analyze_excel.py
+excel_analysis_result.txt

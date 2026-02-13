@@ -115,4 +115,39 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_category", ["sessionId", "aggregationLevel", "category"]),
+
+  // ─────────────────────────────────────────
+  // 7. 리뷰 업로드 세션
+  // ─────────────────────────────────────────
+  reviewSessions: defineTable({
+    filename: v.string(),
+    uploadedAt: v.number(),
+    rowCount: v.number(),
+    productCount: v.number(),
+  })
+    .index("by_uploadedAt", ["uploadedAt"]),
+
+  // ─────────────────────────────────────────
+  // 8. 리뷰 레코드
+  // ─────────────────────────────────────────
+  reviews: defineTable({
+    sessionId: v.id("reviewSessions"),
+    productId: v.string(),        // 상품번호 (문자열)
+    productName: v.string(),
+    category: v.string(),         // 카테고리 (책상/테이블/책장 등)
+    rating: v.number(),
+    content: v.string(),
+    date: v.string(),             // "2025-01-15"
+    reviewType: v.string(),       // "일반" | "한달사용"
+    isMonth: v.boolean(),
+    hasPhoto: v.boolean(),
+    isBest: v.boolean(),
+    helpful: v.number(),
+    author: v.string(),
+    photos: v.array(v.string()),  // 이미지 URL 배열
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_product", ["productId"])
+    .index("by_category", ["category"])
+    .index("by_date", ["date"]),
 });

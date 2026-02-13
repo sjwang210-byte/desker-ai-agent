@@ -161,3 +161,75 @@ export const deleteSessionDimension = mutation({
     return records.length;
   },
 });
+
+// ─────────────────────────────────────────
+// 리뷰 세션 생성
+// ─────────────────────────────────────────
+
+export const createReviewSession = mutation({
+  args: {
+    filename: v.string(),
+    rowCount: v.number(),
+    productCount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("reviewSessions", {
+      filename: args.filename,
+      uploadedAt: Date.now(),
+      rowCount: args.rowCount,
+      productCount: args.productCount,
+    });
+  },
+});
+
+// ─────────────────────────────────────────
+// 리뷰 레코드 일괄 삽입 (배치)
+// ─────────────────────────────────────────
+
+export const insertReviews = mutation({
+  args: {
+    reviews: v.array(
+      v.object({
+        sessionId: v.id("reviewSessions"),
+        productId: v.string(),
+        productName: v.string(),
+        category: v.string(),
+        rating: v.number(),
+        content: v.string(),
+        date: v.string(),
+        reviewType: v.string(),
+        isMonth: v.boolean(),
+        hasPhoto: v.boolean(),
+        isBest: v.boolean(),
+        helpful: v.number(),
+        author: v.string(),
+        photos: v.array(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    for (const review of args.reviews) {
+      await ctx.db.insert("reviews", review);
+    }
+    return args.reviews.length;
+  },
+});
+
+// ─────────────────────────────────────────
+// 리뷰 세션 삭제
+// ─────────────────────────────────────────
+
+export const deleteReviewSession = mutation({
+  args: { sessionId: v.id("reviewSessions") },
+  handler: async (ctx, args) => {
+    const reviews = await ctx.db
+      .query("reviews")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+    for (const r of reviews) {
+      await ctx.db.delete(r._id);
+    }
+    await ctx.db.delete(args.sessionId);
+    return reviews.length;
+  },
+});

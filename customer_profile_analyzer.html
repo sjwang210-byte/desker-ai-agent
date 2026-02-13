@@ -535,13 +535,13 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 <!-- ============ Review Section ============ -->
 <div id="main-review" style="display:none;">
 
-<!-- Review Upload -->
+<!-- Review Upload + DB -->
 <div class="card">
-  <h2>1. 리뷰 데이터 업로드</h2>
+  <h2>1. 리뷰 데이터</h2>
   <div class="upload-area" id="reviewUploadArea">
     <div class="icon">📝</div>
     <p><b>클릭하거나 파일을 드래그</b>하여 리뷰 엑셀 파일을 업로드하세요</p>
-    <p style="font-size:12px; margin-top:8px; color:#999;">네이버 스토어 리뷰 다운로드 파일 (.xlsx)</p>
+    <p style="font-size:12px; margin-top:8px; color:#999;">네이버 스토어 리뷰 다운로드 파일 (.xlsx) — 여러 번 업로드하면 누적됩니다</p>
     <input type="file" id="reviewFileInput" accept=".xlsx,.xls">
   </div>
   <div id="reviewUploadStatus" class="hidden" style="margin-top:12px;">
@@ -551,15 +551,37 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
       <span id="reviewProductCount" class="badge badge-photo"></span>
     </div>
   </div>
+  <hr style="margin:16px 0; border:none; border-top:1px solid var(--gray-200);">
+  <h3 style="font-size:14px; margin-bottom:12px;">저장된 리뷰 데이터 (Convex DB)</h3>
+  <div id="reviewSessionList" style="font-size:13px; color:var(--gray-500);">불러오는 중...</div>
+  <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+    <button class="btn btn-primary hidden" id="btnSaveReview" onclick="saveReviewToConvex()">DB에 저장</button>
+    <button class="btn btn-secondary" onclick="loadAllReviewsFromConvex()">전체 누적 불러오기</button>
+    <button class="btn btn-secondary" onclick="refreshReviewSessions()">새로고침</button>
+  </div>
+  <div id="reviewConvexProgress" class="hidden" style="margin-top:12px;">
+    <div style="background:var(--gray-200); border-radius:4px; height:8px; overflow:hidden;">
+      <div id="reviewProgressBar" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
+    </div>
+    <div id="reviewProgressText" style="font-size:12px; color:var(--gray-500); margin-top:4px;">준비 중...</div>
+  </div>
+  <div id="reviewConvexStatus" style="font-size:12px; color:var(--gray-500); margin-top:8px;"></div>
 </div>
 
 <!-- Review Filter + Results -->
 <div class="card hidden" id="reviewControlCard">
   <h2>2. 상품 선택 및 필터</h2>
   <div style="display:grid; grid-template-columns:350px 1fr; gap:24px;">
-    <!-- Left: Product filter -->
+    <!-- Left: Category + Product filter -->
     <div>
       <div class="control-group">
+        <label>카테고리 필터</label>
+        <select id="reviewCategoryFilter" onchange="onCategoryFilterChange()"
+          style="width:100%; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+          <option value="__ALL__">전체 카테고리</option>
+        </select>
+      </div>
+      <div class="control-group" style="margin-top:8px;">
         <label>상품 검색</label>
         <input type="text" id="reviewProductSearch" placeholder="상품번호 또는 상품명 검색..."
           oninput="filterReviewProducts()"
@@ -568,7 +590,8 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
       <div class="product-list" id="reviewProductList"></div>
       <div style="margin-top:8px; font-size:12px; color:var(--gray-500);">
         <span id="reviewFilteredCount">0</span>개 상품 표시 중 |
-        <a href="#" onclick="selectAllReviewProducts(); return false;" style="color:var(--primary);">전체 선택</a>
+        <a href="#" onclick="selectAllReviewProducts(); return false;" style="color:var(--primary);">전체 선택</a> |
+        <a href="#" onclick="clearProductSelection(); return false;" style="color:var(--gray-500);">선택 해제</a>
       </div>
     </div>
     <!-- Right: Filters + sort -->
@@ -627,9 +650,10 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 
   <!-- Keywords -->
   <div class="tab-content" id="rtab-keywords">
+    <div id="keywordCategoryCards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px; margin-bottom:24px;"></div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
       <div>
-        <h3 style="font-size:15px; margin-bottom:12px;">상위 키워드 (빈도순)</h3>
+        <h3 style="font-size:15px; margin-bottom:12px;">전체 의미 키워드 (빈도순)</h3>
         <div class="table-wrapper" id="keywordTable"></div>
       </div>
       <div>
@@ -1730,32 +1754,135 @@ function switchMainTab(tab) {
   });
   document.getElementById('main-profile').style.display = tab === 'profile' ? '' : 'none';
   document.getElementById('main-review').style.display = tab === 'review' ? '' : 'none';
+  if (tab === 'review') refreshReviewSessions();
 }
 
 // ───────────────────────────────────────
 // Review Analysis - State
 // ───────────────────────────────────────
-let reviewData = [];         // 전체 파싱된 리뷰 배열
-let reviewProducts = {};     // { 상품번호: { name, reviews: [...], count } }
-let selectedProductIds = []; // 선택된 상품번호 배열
+let reviewData = [];         // 전체 리뷰 배열 (누적)
+let reviewProducts = {};     // { 상품번호: { name, category, count } }
+let reviewCategories = [];   // 카테고리 목록
+let selectedProductIds = []; // 선택된 상품번호
+let selectedCategory = '__ALL__';
 let reviewTypeFilter = 'all';
 let reviewPage = 1;
 const REVIEWS_PER_PAGE = 20;
 let galleryPage = 1;
 const GALLERY_PER_PAGE = 40;
 let keywordChartInstance = null;
+let pendingReviewFile = null; // 파싱된 파일 (Convex 저장 대기)
 
-// 한국어 불용어
-const STOPWORDS = new Set([
-  '있다','없다','하다','되다','이다','것','수','등','더','안','잘','좀','정말','진짜','너무',
-  '아주','매우','그냥','다시','또','꽤','약간','조금','거의','많이','같다','보다','같은',
-  '그리고','그런데','하지만','그래서','그러나','때문','위해','대한','통해','에서','으로',
-  '에게','까지','부터','이런','그런','저런','어떤','모든','각','및','혹은','또는','이',
-  '그','저','것이','것을','것은','합니다','입니다','있는','없는','하는','된','한','할','들',
-  '좋은','좋아','좋고','좋습니다','좋아요','있어','있고','있습니다','해서','하고','했는데',
-  '인데','에요','구매','사용','제품','상품','배송','주문','구입','네이버','스토어','리뷰',
-  '이거','저거','그거','뭐','왜','어떻게','언제','어디','누구','무엇','아','음','응',
+// 카테고리 추출 패턴 (상품명에서 카테고리 자동 추출)
+const CATEGORY_PATTERNS = [
+  { pattern: /책상/, category: '책상' },
+  { pattern: /테이블/, category: '테이블' },
+  { pattern: /책장/, category: '책장' },
+  { pattern: /선반/, category: '선반장' },
+  { pattern: /서랍/, category: '서랍장' },
+  { pattern: /의자|체어/, category: '의자' },
+  { pattern: /수납|캐비닛/, category: '수납장' },
+  { pattern: /행거|옷걸이/, category: '행거' },
+  { pattern: /거울/, category: '거울' },
+  { pattern: /침대|매트리스/, category: '침대' },
+  { pattern: /소파/, category: '소파' },
+  { pattern: /모니터받침|받침대/, category: '모니터받침대' },
+  { pattern: /파티션|가림막/, category: '파티션' },
+  { pattern: /조명|스탠드/, category: '조명' },
+];
+
+function detectCategory(productName) {
+  for (const { pattern, category } of CATEGORY_PATTERNS) {
+    if (pattern.test(productName)) return category;
+  }
+  return '기타';
+}
+
+// ───────────────────────────────────────
+// 의미 키워드 사전 (사용맥락 + 품질평가)
+// ───────────────────────────────────────
+const KEYWORD_DICT = {
+  '누가 (사용자)': [
+    '아이','아이들','자녀','아들','딸','7세','6살','초등','중학교','유치원',
+    '가족','세식구','3인가족','5인가족','4인가족',
+    '1인가구','혼자',
+    '부부','와이프','남편','아내',
+    '재택근무','사무실','회사','직장인',
+  ],
+  '어디서 (설치 장소)': [
+    '거실','거실테이블','거실서재','거실공부',
+    '서재','공부방','서재방',
+    '사무실','회의실','미팅룸',
+    '아이방','아들방','딸방',
+    '주방','식탁 대신','식탁 대용',
+    '공간대여룸','수업용','카페',
+  ],
+  '어떻게 (사용 방식)': [
+    '공부','학습','독서','책읽기','워크북',
+    '식탁 겸','식사','밥','식탁으로',
+    '재택근무','컴퓨터','노트북','모니터','업무',
+    '다용도','겸용','작업대',
+    '미술놀이','블럭놀이','그림','색연필',
+    '보드게임',
+    '손님','8인','식사 가능',
+  ],
+  '왜 (구매 이유)': [
+    '거실서재','소파 치우고','거실 공부방',
+    '입학','초등','커서','성장',
+    '이사','새집',
+    '바꿨어요','교체','이케아',
+    '식탁 대신',
+    '재구매','두개째','또 샀어요','5개째',
+    '가성비','저렴','가격대비','할인',
+    '추천받아','매장에서 보고','백화점',
+  ],
+  '만족 이유': [
+    '견고','튼튼','짱짱','묵직','흔들림없음','흔들림 없',
+    '넓어서','넉넉','여유','크기 만족',
+    '깔끔','세련','군더더기없는','심플',
+    '잘 닦여','잘 지워져','코팅','김치국물',
+    '화이트','밝아서','환해졌어요',
+    '설치기사 친절','빠른설치','5분 설치','빠른 설치',
+    '배송 빠르고','빠른배송','빠른 배송',
+    '가성비','이 가격에',
+  ],
+  '불만족 이유': [
+    '얼룩','이염','자국','파여있음','스크래치',
+    '배송 늦어','3주 기다림','한달 기다림','배송 지연',
+    '지문','손자국','블랙 지문',
+    '모서리 직각','아이 위험',
+    '높이 낮게','어른들은 낮',
+    '기사님 불친절','담배냄새','담배 냄새',
+    '교환 번거로움','AS 늦음','고객센터',
+    '콘센트 위치 중앙','코드 짧음',
+    '진동','상판 얇아서',
+    '너무 큼','너무 작음','30평대 큼',
+    '불편','실망','별로',
+  ],
+};
+
+// 불용어 (인사이트 없음)
+const REVIEW_STOPWORDS = new Set([
+  '좋아요','만족합니다','잘 샀어요','추천합니다','감사합니다','잘 받았습니다',
+  '잘 사용중','맘에들어요','좋습니다','최고','굿','대만족','강추','잘쓰고있어요',
+  '좋은','좋아','좋고','좋습니다','좋아요','있어','있고','있습니다','해서','하고',
+  '했는데','인데','에요','구매','사용','제품','상품','배송','주문','구입','네이버',
+  '스토어','리뷰','이거','저거','그거','합니다','입니다','있는','없는','하는',
 ]);
+
+// 키워드 → 카테고리 매핑 (긴 키워드부터 매칭하도록 정렬)
+const KEYWORD_TO_CATEGORY = {};
+const SORTED_KEYWORDS = []; // 긴 것부터 매칭 (복합키워드 우선)
+for (const [cat, words] of Object.entries(KEYWORD_DICT)) {
+  for (const w of words) {
+    KEYWORD_TO_CATEGORY[w] = cat;
+    SORTED_KEYWORDS.push(w);
+  }
+}
+SORTED_KEYWORDS.sort((a, b) => b.length - a.length); // 긴 키워드부터 매칭
+
+// 부정 표현 패턴
+const NEGATION_PATTERNS = [/않은/, /않아/, /않다/, /없는/, /없어/, /못한/, /안 /];
 
 // ───────────────────────────────────────
 // Review - File Upload
@@ -1775,6 +1902,103 @@ reviewFileInput.addEventListener('change', (e) => {
   if (e.target.files.length) handleReviewFile(e.target.files[0]);
 });
 
+function parseReviewRows(rows) {
+  const cols = Object.keys(rows[0]);
+  const colMap = {
+    productId:  cols.find(c => c.includes('상품번호')) || '상품번호',
+    productName: cols.find(c => c === '상품명' || c.includes('상품명')) || '상품명',
+    reviewType: cols.find(c => c.includes('리뷰구분') || c.includes('구분')) || '리뷰구분',
+    rating:     cols.find(c => c.includes('구매자평점') || c.includes('평점')) || '구매자평점',
+    hasPhoto:   cols.find(c => c.includes('포토') || c.includes('영상')) || '포토영상',
+    content:    cols.find(c => c.includes('리뷰상세') || c.includes('내용')) || '리뷰상세내용',
+    helpful:    cols.find(c => c.includes('도움수') || c.includes('도움')) || '리뷰도움수',
+    author:     cols.find(c => c.includes('등록자') || c.includes('작성자')) || '등록자',
+    date:       cols.find(c => c.includes('리뷰등록일') || c.includes('등록일')) || '리뷰등록일',
+    isBest:     cols.find(c => c.includes('베스트') || c.includes('BEST')) || '베스트리뷰',
+    photoUrls:  cols.find(c => c.includes('리뷰이미지') || c.includes('이미지URL') || c.includes('이미지')) || null,
+  };
+
+  const parsed = [];
+  for (const row of rows) {
+    const pid = String(row[colMap.productId] || '').trim();
+    if (!pid) continue;
+    const pname = String(row[colMap.productName] || '').trim();
+    const ratingRaw = row[colMap.rating];
+    const rating = typeof ratingRaw === 'number' ? ratingRaw : parseInt(ratingRaw) || 0;
+    const content = String(row[colMap.content] || '').trim();
+    const dateRaw = row[colMap.date];
+    let dateStr = '';
+    if (typeof dateRaw === 'number') {
+      const d = XLSX.SSF.parse_date_code(dateRaw);
+      if (d) dateStr = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+    } else {
+      dateStr = String(dateRaw || '').trim();
+    }
+    const reviewType = String(row[colMap.reviewType] || '').trim();
+    const isMonth = reviewType.includes('한달');
+    const hasPhotoRaw = String(row[colMap.hasPhoto] || '').trim();
+    const hasPhoto = hasPhotoRaw === 'Y' || hasPhotoRaw === '있음' || hasPhotoRaw.includes('포토');
+    const isBestRaw = String(row[colMap.isBest] || '').trim();
+    const isBest = isBestRaw === 'Y' || isBestRaw === '있음' || isBestRaw.includes('베스트');
+    const helpful = parseInt(row[colMap.helpful]) || 0;
+    const author = String(row[colMap.author] || '').trim();
+    let photos = [];
+    if (colMap.photoUrls && row[colMap.photoUrls]) {
+      const urlStr = String(row[colMap.photoUrls]).trim();
+      if (urlStr) photos = urlStr.split(/[,|]/).map(u => u.trim()).filter(u => u.startsWith('http'));
+    }
+    const category = detectCategory(pname);
+    parsed.push({
+      productId: pid, productName: pname, category, rating, content, date: dateStr,
+      reviewType, isMonth, hasPhoto, isBest, helpful, author, photos,
+    });
+  }
+  return parsed;
+}
+
+function mergeReviews(newReviews) {
+  // 중복 방지: productId + date + author 조합으로 체크
+  const existingKeys = new Set(reviewData.map(r => `${r.productId}|${r.date}|${r.author}`));
+  let added = 0;
+  for (const r of newReviews) {
+    const key = `${r.productId}|${r.date}|${r.author}`;
+    if (!existingKeys.has(key)) {
+      reviewData.push(r);
+      existingKeys.add(key);
+      added++;
+    }
+  }
+  rebuildReviewIndex();
+  return added;
+}
+
+function rebuildReviewIndex() {
+  reviewProducts = {};
+  for (const r of reviewData) {
+    if (!reviewProducts[r.productId]) {
+      reviewProducts[r.productId] = { name: r.productName, category: r.category, count: 0 };
+    }
+    reviewProducts[r.productId].count++;
+  }
+  // 카테고리 목록 갱신
+  const catCounts = {};
+  for (const r of reviewData) {
+    catCounts[r.category] = (catCounts[r.category] || 0) + 1;
+  }
+  reviewCategories = Object.entries(catCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, cnt]) => ({ category: cat, count: cnt }));
+  updateCategoryDropdown();
+}
+
+function updateCategoryDropdown() {
+  const sel = document.getElementById('reviewCategoryFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="__ALL__">전체 카테고리</option>' +
+    reviewCategories.map(c => `<option value="${c.category}">${c.category} (${c.count.toLocaleString()})</option>`).join('');
+  sel.value = prev || '__ALL__';
+}
+
 function handleReviewFile(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -1783,81 +2007,21 @@ function handleReviewFile(file) {
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
     if (!rows.length) { alert('데이터가 없습니다.'); return; }
 
-    // 컬럼명 매핑 (유연하게 매칭)
-    const cols = Object.keys(rows[0]);
-    const colMap = {
-      productId:  cols.find(c => c.includes('상품번호')) || '상품번호',
-      productName: cols.find(c => c === '상품명' || c.includes('상품명')) || '상품명',
-      reviewType: cols.find(c => c.includes('리뷰구분') || c.includes('구분')) || '리뷰구분',
-      rating:     cols.find(c => c.includes('구매자평점') || c.includes('평점')) || '구매자평점',
-      hasPhoto:   cols.find(c => c.includes('포토') || c.includes('영상')) || '포토영상',
-      content:    cols.find(c => c.includes('리뷰상세') || c.includes('내용')) || '리뷰상세내용',
-      helpful:    cols.find(c => c.includes('도움수') || c.includes('도움')) || '리뷰도움수',
-      author:     cols.find(c => c.includes('등록자') || c.includes('작성자')) || '등록자',
-      date:       cols.find(c => c.includes('리뷰등록일') || c.includes('등록일')) || '리뷰등록일',
-      isBest:     cols.find(c => c.includes('베스트') || c.includes('BEST')) || '베스트리뷰',
-      photoUrls:  cols.find(c => c.includes('리뷰이미지') || c.includes('이미지URL') || c.includes('이미지')) || null,
-    };
-
-    // Parse all rows
-    reviewData = [];
-    reviewProducts = {};
-    for (const row of rows) {
-      const pid = String(row[colMap.productId] || '').trim();
-      if (!pid) continue;
-      const pname = String(row[colMap.productName] || '').trim();
-      const ratingRaw = row[colMap.rating];
-      const rating = typeof ratingRaw === 'number' ? ratingRaw : parseInt(ratingRaw) || 0;
-      const content = String(row[colMap.content] || '').trim();
-      const dateRaw = row[colMap.date];
-      let dateStr = '';
-      if (typeof dateRaw === 'number') {
-        // Excel serial date
-        const d = XLSX.SSF.parse_date_code(dateRaw);
-        if (d) dateStr = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
-      } else {
-        dateStr = String(dateRaw || '').trim();
-      }
-      const reviewType = String(row[colMap.reviewType] || '').trim();
-      const isMonth = reviewType.includes('한달');
-      const hasPhotoRaw = String(row[colMap.hasPhoto] || '').trim();
-      const hasPhoto = hasPhotoRaw === 'Y' || hasPhotoRaw === '있음' || hasPhotoRaw.includes('포토');
-      const isBestRaw = String(row[colMap.isBest] || '').trim();
-      const isBest = isBestRaw === 'Y' || isBestRaw === '있음' || isBestRaw.includes('베스트');
-      const helpful = parseInt(row[colMap.helpful]) || 0;
-      const author = String(row[colMap.author] || '').trim();
-
-      // Parse image URLs (comma/pipe separated)
-      let photos = [];
-      if (colMap.photoUrls && row[colMap.photoUrls]) {
-        const urlStr = String(row[colMap.photoUrls]).trim();
-        if (urlStr) photos = urlStr.split(/[,|]/).map(u => u.trim()).filter(u => u.startsWith('http'));
-      }
-
-      const review = {
-        productId: pid, productName: pname, rating, content, date: dateStr,
-        reviewType, isMonth, hasPhoto, isBest, helpful, author, photos,
-      };
-      reviewData.push(review);
-
-      if (!reviewProducts[pid]) {
-        reviewProducts[pid] = { name: pname, reviews: [], count: 0 };
-      }
-      reviewProducts[pid].reviews.push(review);
-      reviewProducts[pid].count++;
-    }
+    const parsed = parseReviewRows(rows);
+    pendingReviewFile = { filename: file.name, reviews: parsed };
+    const added = mergeReviews(parsed);
 
     // Update UI
     document.getElementById('reviewUploadStatus').classList.remove('hidden');
     document.getElementById('reviewFileName').textContent = file.name;
-    document.getElementById('reviewRowCount').textContent = `${reviewData.length.toLocaleString()}개 리뷰`;
-    document.getElementById('reviewProductCount').textContent = `${Object.keys(reviewProducts).length}개 상품`;
+    document.getElementById('reviewRowCount').textContent = `${parsed.length.toLocaleString()}개 리뷰 (신규 ${added})`;
+    document.getElementById('reviewProductCount').textContent = `누적 ${reviewData.length.toLocaleString()}개 / ${Object.keys(reviewProducts).length}개 상품`;
+    document.getElementById('btnSaveReview').classList.remove('hidden');
 
     // Show controls
     document.getElementById('reviewControlCard').classList.remove('hidden');
     document.getElementById('reviewResultCard').classList.remove('hidden');
 
-    // Render product list
     selectedProductIds = [];
     filterReviewProducts();
     renderReviewSummary();
@@ -1867,18 +2031,167 @@ function handleReviewFile(file) {
 }
 
 // ───────────────────────────────────────
+// Review - Convex Save/Load
+// ───────────────────────────────────────
+function setReviewConvexStatus(msg, isError) {
+  const el = document.getElementById('reviewConvexStatus');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--danger)' : 'var(--gray-500)';
+}
+
+async function refreshReviewSessions() {
+  try {
+    const sessions = await convexCall('query', 'queryData:listReviewSessions', {});
+    const listEl = document.getElementById('reviewSessionList');
+    if (!sessions.length) {
+      listEl.innerHTML = '<span style="color:var(--gray-500);">저장된 데이터 없음</span>';
+      return;
+    }
+    listEl.innerHTML = sessions.map(s => {
+      const date = new Date(s.uploadedAt).toLocaleString('ko-KR');
+      return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--gray-100);">
+        <span>${s.filename} — ${s.rowCount.toLocaleString()}건, ${s.productCount}개 상품</span>
+        <span style="font-size:11px; color:var(--gray-500);">${date}</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    setReviewConvexStatus('세션 조회 실패: ' + err.message, true);
+  }
+}
+
+async function saveReviewToConvex() {
+  if (!pendingReviewFile) { alert('저장할 파일 데이터가 없습니다.'); return; }
+  const { filename, reviews } = pendingReviewFile;
+  const productIds = new Set(reviews.map(r => r.productId));
+
+  const progEl = document.getElementById('reviewConvexProgress');
+  const barEl = document.getElementById('reviewProgressBar');
+  const textEl = document.getElementById('reviewProgressText');
+  progEl.classList.remove('hidden');
+  barEl.style.width = '0%';
+  textEl.textContent = '세션 생성 중...';
+
+  try {
+    const sessionId = await convexCall('mutation', 'uploadData:createReviewSession', {
+      filename, rowCount: reviews.length, productCount: productIds.size,
+    });
+
+    // 배치 삽입 (100개씩)
+    const BATCH = 100;
+    const total = reviews.length;
+    for (let i = 0; i < total; i += BATCH) {
+      const batch = reviews.slice(i, i + BATCH).map(r => ({
+        sessionId,
+        productId: r.productId,
+        productName: r.productName,
+        category: r.category,
+        rating: r.rating,
+        content: r.content,
+        date: r.date,
+        reviewType: r.reviewType,
+        isMonth: r.isMonth,
+        hasPhoto: r.hasPhoto,
+        isBest: r.isBest,
+        helpful: r.helpful,
+        author: r.author,
+        photos: r.photos,
+      }));
+      await convexCall('mutation', 'uploadData:insertReviews', { reviews: batch });
+      const pct = Math.round(((i + batch.length) / total) * 100);
+      barEl.style.width = pct + '%';
+      textEl.textContent = `저장 중... ${Math.min(i + BATCH, total).toLocaleString()} / ${total.toLocaleString()}`;
+    }
+
+    barEl.style.width = '100%';
+    textEl.textContent = '완료!';
+    setReviewConvexStatus(`${filename} — ${total.toLocaleString()}건 저장 완료`, false);
+    pendingReviewFile = null;
+    document.getElementById('btnSaveReview').classList.add('hidden');
+    setTimeout(() => progEl.classList.add('hidden'), 2000);
+    refreshReviewSessions();
+  } catch (err) {
+    setReviewConvexStatus('저장 실패: ' + err.message, true);
+    progEl.classList.add('hidden');
+  }
+}
+
+async function loadAllReviewsFromConvex() {
+  setReviewConvexStatus('데이터 불러오는 중...', false);
+  try {
+    const sessions = await convexCall('query', 'queryData:listReviewSessions', {});
+    if (!sessions.length) { setReviewConvexStatus('저장된 데이터 없음', false); return; }
+
+    const sessionIds = sessions.map(s => s._id);
+    const allReviews = await convexCall('query', 'queryData:getReviews', { sessionIds });
+
+    // 메모리에 누적 로드
+    reviewData = [];
+    for (const r of allReviews) {
+      reviewData.push({
+        productId: r.productId, productName: r.productName, category: r.category,
+        rating: r.rating, content: r.content, date: r.date,
+        reviewType: r.reviewType, isMonth: r.isMonth, hasPhoto: r.hasPhoto,
+        isBest: r.isBest, helpful: r.helpful, author: r.author, photos: r.photos,
+      });
+    }
+    rebuildReviewIndex();
+
+    const totalRows = sessions.reduce((s, x) => s + x.rowCount, 0);
+    setReviewConvexStatus(`${sessions.length}개 세션에서 ${reviewData.length.toLocaleString()}건 로드 완료`, false);
+
+    document.getElementById('reviewUploadStatus').classList.remove('hidden');
+    document.getElementById('reviewFileName').textContent = 'Convex DB (누적)';
+    document.getElementById('reviewRowCount').textContent = `${reviewData.length.toLocaleString()}개 리뷰`;
+    document.getElementById('reviewProductCount').textContent = `${Object.keys(reviewProducts).length}개 상품`;
+
+    document.getElementById('reviewControlCard').classList.remove('hidden');
+    document.getElementById('reviewResultCard').classList.remove('hidden');
+
+    selectedProductIds = [];
+    filterReviewProducts();
+    renderReviewSummary();
+    renderReviewList();
+  } catch (err) {
+    setReviewConvexStatus('로드 실패: ' + err.message, true);
+  }
+}
+
+// ───────────────────────────────────────
+// Review - Category Filter
+// ───────────────────────────────────────
+function onCategoryFilterChange() {
+  selectedCategory = document.getElementById('reviewCategoryFilter').value;
+  selectedProductIds = [];
+  filterReviewProducts();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+}
+
+function clearProductSelection() {
+  selectedProductIds = [];
+  filterReviewProducts();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+}
+
+// ───────────────────────────────────────
 // Review - Product Filter
 // ───────────────────────────────────────
 function filterReviewProducts() {
   const search = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
   const listEl = document.getElementById('reviewProductList');
   const entries = Object.entries(reviewProducts)
-    .filter(([pid, p]) => !search || pid.toLowerCase().includes(search) || p.name.toLowerCase().includes(search))
+    .filter(([pid, p]) => {
+      if (selectedCategory !== '__ALL__' && p.category !== selectedCategory) return false;
+      if (search && !pid.toLowerCase().includes(search) && !p.name.toLowerCase().includes(search)) return false;
+      return true;
+    })
     .sort((a, b) => b[1].count - a[1].count);
 
   document.getElementById('reviewFilteredCount').textContent = entries.length;
 
-  // Render max 200 for performance
   const show = entries.slice(0, 200);
   listEl.innerHTML = show.map(([pid, p]) =>
     `<div class="product-item ${selectedProductIds.includes(pid) ? 'selected' : ''}" onclick="toggleReviewProduct('${pid}')">
@@ -1906,7 +2219,11 @@ function toggleReviewProduct(pid) {
 function selectAllReviewProducts() {
   const search = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
   selectedProductIds = Object.entries(reviewProducts)
-    .filter(([pid, p]) => !search || pid.toLowerCase().includes(search) || p.name.toLowerCase().includes(search))
+    .filter(([pid, p]) => {
+      if (selectedCategory !== '__ALL__' && p.category !== selectedCategory) return false;
+      if (search && !pid.toLowerCase().includes(search) && !p.name.toLowerCase().includes(search)) return false;
+      return true;
+    })
     .map(([pid]) => pid);
   filterReviewProducts();
   reviewPage = 1;
@@ -1921,6 +2238,11 @@ function selectAllReviewProducts() {
 // ───────────────────────────────────────
 function getFilteredReviews() {
   let reviews = reviewData;
+
+  // Filter by category
+  if (selectedCategory !== '__ALL__') {
+    reviews = reviews.filter(r => r.category === selectedCategory);
+  }
 
   // Filter by selected products
   if (selectedProductIds.length > 0) {
@@ -2004,44 +2326,44 @@ function renderReviewList() {
 
   const container = document.getElementById('reviewListContainer');
   if (pageReviews.length === 0) {
-    container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500);">표시할 리뷰가 없습니다. 상품을 선택해주세요.</div>';
+    container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500);">표시할 리뷰가 없습니다. 카테고리를 선택하거나 상품을 선택해주세요.</div>';
     document.getElementById('reviewPagination').innerHTML = '';
     return;
   }
 
   container.innerHTML = pageReviews.map(r => {
-    const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(Math.max(0, 5 - r.rating));
     const badges = [];
     if (r.isMonth) badges.push('<span class="badge badge-month">한달사용</span>');
     if (r.isBest) badges.push('<span class="badge badge-best">베스트</span>');
     if (r.hasPhoto) badges.push('<span class="badge badge-photo">포토</span>');
 
     const photoHtml = r.photos.length > 0
-      ? `<div class="review-photos">${r.photos.slice(0, 5).map(u => `<img src="${u}" alt="리뷰 이미지" onclick="event.stopPropagation(); openImageModal('${u}')" onerror="this.style.display='none'">`).join('')}</div>`
+      ? `<div class="review-photos">${r.photos.slice(0, 5).map(u => `<img src="${escapeHtml(u)}" alt="리뷰 이미지" onclick="event.stopPropagation(); openImageModal('${escapeHtml(u)}')" onerror="this.style.display='none'">`).join('')}</div>`
       : '';
 
     return `<div class="review-item">
       <div class="review-header">
         <span class="stars">${stars}</span>
         ${badges.join(' ')}
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">${r.category}</span>
       </div>
-      <div class="review-product">${r.productName} (${r.productId})</div>
+      <div class="review-product">${escapeHtml(r.productName)} (${r.productId})</div>
       <div class="review-body">${escapeHtml(r.content || '(내용 없음)')}</div>
       ${photoHtml}
       <div class="review-meta">
-        <span>${r.author || '익명'}</span>
+        <span>${escapeHtml(r.author || '익명')}</span>
         <span>${r.date || '-'}</span>
         ${r.helpful > 0 ? `<span>도움 ${r.helpful}</span>` : ''}
       </div>
     </div>`;
   }).join('');
 
-  // Pagination
   renderPagination('reviewPagination', reviewPage, totalPages, (p) => { reviewPage = p; renderReviewList(); });
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function renderPagination(containerId, currentPage, totalPages, onPageClick) {
@@ -2051,7 +2373,6 @@ function renderPagination(containerId, currentPage, totalPages, onPageClick) {
   let buttons = [];
   if (currentPage > 1) buttons.push(`<button onclick="void(0)" data-page="${currentPage - 1}">◀</button>`);
 
-  // Show max 7 page buttons
   let startP = Math.max(1, currentPage - 3);
   let endP = Math.min(totalPages, startP + 6);
   if (endP - startP < 6) startP = Math.max(1, endP - 6);
@@ -2069,52 +2390,108 @@ function renderPagination(containerId, currentPage, totalPages, onPageClick) {
 }
 
 // ───────────────────────────────────────
-// Review - Keyword Analysis
+// Review - Keyword Analysis (의미 키워드)
 // ───────────────────────────────────────
 function renderKeywords() {
   const reviews = getFilteredReviews();
-  const freq = {};
+  const catFreq = {};
+  for (const cat of Object.keys(KEYWORD_DICT)) catFreq[cat] = {};
+  const allFreq = {};
 
   for (const r of reviews) {
     if (!r.content) continue;
-    // Simple Korean word tokenization: split by space and filter
-    const words = r.content
-      .replace(/[^가-힣a-zA-Z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length >= 2 && !STOPWORDS.has(w));
-    const seen = new Set(); // count each word once per review
-    for (const w of words) {
+    const text = r.content;
+    const seen = new Set();
+
+    // 복합 키워드부터 매칭 (긴 것 우선)
+    for (const w of SORTED_KEYWORDS) {
       if (seen.has(w)) continue;
+      const idx = text.indexOf(w);
+      if (idx === -1) continue;
+
+      // 부정 문맥 체크 — 만족이유 키워드가 부정형이면 불만족으로 전환
+      const cat = KEYWORD_TO_CATEGORY[w];
+      let finalCat = cat;
+      if (cat === '만족 이유') {
+        const before = text.substring(Math.max(0, idx - 10), idx + w.length + 5);
+        const isNegated = NEGATION_PATTERNS.some(p => p.test(before));
+        if (isNegated) finalCat = '불만족 이유';
+      }
+
       seen.add(w);
-      freq[w] = (freq[w] || 0) + 1;
+      if (!catFreq[finalCat]) catFreq[finalCat] = {};
+      const displayKey = finalCat !== cat ? w + '(부정)' : w;
+      catFreq[finalCat][displayKey] = (catFreq[finalCat][displayKey] || 0) + 1;
+      allFreq[displayKey] = (allFreq[displayKey] || 0) + 1;
     }
   }
 
-  const sorted = Object.entries(freq)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 50);
+  // 카테고리별 카드 렌더링
+  const cardsEl = document.getElementById('keywordCategoryCards');
+  const catColors = {
+    '누가 (사용자)': { bg: '#E8F5E9', color: '#2E7D32', bar: '#43A047' },
+    '어디서 (설치 장소)': { bg: '#E3F2FD', color: '#1565C0', bar: '#1E88E5' },
+    '어떻게 (사용 방식)': { bg: '#FFF3E0', color: '#E65100', bar: '#FB8C00' },
+    '왜 (구매 이유)': { bg: '#F3E5F5', color: '#6A1B9A', bar: '#8E24AA' },
+    '만족 이유': { bg: '#E8F5E9', color: '#1B5E20', bar: '#2E7D32' },
+    '불만족 이유': { bg: '#FFEBEE', color: '#B71C1C', bar: '#E53935' },
+  };
 
-  // Table
+  cardsEl.innerHTML = Object.entries(catFreq).map(([cat, freq]) => {
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const maxF = sorted.length > 0 ? sorted[0][1] : 1;
+    const style = catColors[cat] || { bg: '#F5F5F5', color: '#333', bar: '#999' };
+    const totalMentions = Object.values(freq).reduce((s, v) => s + v, 0);
+
+    return `<div style="border:1px solid var(--gray-200); border-radius:var(--radius); overflow:hidden;">
+      <div style="background:${style.bg}; color:${style.color}; padding:12px 16px; font-weight:600; font-size:14px; display:flex; justify-content:space-between;">
+        <span>${cat}</span>
+        <span style="font-weight:400; font-size:12px;">${totalMentions.toLocaleString()}회 언급</span>
+      </div>
+      <div style="padding:12px 16px;">
+        ${sorted.length === 0 ? '<div style="color:var(--gray-500); font-size:13px;">데이터 없음</div>' :
+          sorted.map(([w, cnt]) =>
+            `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+              <span style="min-width:60px; font-size:13px; font-weight:500;">${w}</span>
+              <div style="flex:1; background:var(--gray-100); border-radius:3px; height:16px; overflow:hidden;">
+                <div style="width:${Math.round(cnt / maxF * 100)}%; height:100%; background:${style.bar}; border-radius:3px;"></div>
+              </div>
+              <span style="min-width:40px; text-align:right; font-size:12px; color:var(--gray-500);">${cnt}</span>
+            </div>`
+          ).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  // 통합 테이블 + 차트
+  const allSorted = Object.entries(allFreq).sort((a, b) => b[1] - a[1]).slice(0, 50);
   const tableEl = document.getElementById('keywordTable');
-  if (sorted.length === 0) {
+  if (allSorted.length === 0) {
     tableEl.innerHTML = '<div style="padding:20px; text-align:center; color:var(--gray-500);">키워드 데이터 없음</div>';
   } else {
-    const maxFreq = sorted[0][1];
-    tableEl.innerHTML = `<table><thead><tr><th style="width:40px;">#</th><th>키워드</th><th style="width:80px;">빈도</th><th>비율</th></tr></thead><tbody>
-      ${sorted.slice(0, 30).map(([word, cnt], i) =>
-        `<tr><td>${i + 1}</td><td>${word}</td><td>${cnt}</td>
+    const maxFreq = allSorted[0][1];
+    tableEl.innerHTML = `<table><thead><tr><th style="width:40px;">#</th><th>키워드</th><th style="width:70px;">카테고리</th><th style="width:60px;">빈도</th><th>비율</th></tr></thead><tbody>
+      ${allSorted.slice(0, 30).map(([word, cnt], i) => {
+        const cleanWord = word.replace('(부정)', '');
+        const cat = KEYWORD_TO_CATEGORY[cleanWord] || (word.includes('(부정)') ? '불만족 이유' : '');
+        const shortCat = cat.split(' ')[0];
+        return `<tr><td>${i + 1}</td><td>${word}</td><td style="font-size:11px;">${shortCat}</td><td>${cnt}</td>
         <td><div style="background:var(--primary-light); border-radius:3px; height:18px; width:${Math.round(cnt / maxFreq * 100)}%;">
           <div style="background:var(--primary); height:100%; border-radius:3px; width:100%;"></div>
-        </div></td></tr>`
-      ).join('')}
+        </div></td></tr>`;
+      }).join('')}
     </tbody></table>`;
   }
 
   // Chart
   if (keywordChartInstance) { keywordChartInstance.destroy(); keywordChartInstance = null; }
-  const top20 = sorted.slice(0, 20);
+  const top20 = allSorted.slice(0, 20);
   if (top20.length > 0) {
     const ctx = document.getElementById('keywordChart').getContext('2d');
+    const barColors = top20.map(([w]) => {
+      const cat = KEYWORD_TO_CATEGORY[w];
+      return (catColors[cat] || {}).bar || '#90CAF9';
+    });
     keywordChartInstance = new Chart(ctx, {
       type: 'bar',
       data: {
@@ -2122,7 +2499,7 @@ function renderKeywords() {
         datasets: [{
           label: '빈도',
           data: top20.map(([, c]) => c),
-          backgroundColor: CHART_COLORS.slice(0, top20.length).concat(Array(Math.max(0, top20.length - CHART_COLORS.length)).fill('#90CAF9')),
+          backgroundColor: barColors,
           borderRadius: 4,
         }],
       },
@@ -2162,9 +2539,9 @@ function renderGallery() {
     grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--gray-500);">사진이 있는 리뷰가 없습니다.</div>';
   } else {
     grid.innerHTML = pagePhotos.map(p =>
-      `<div class="gallery-item" onclick="openImageModal('${p.url}')">
-        <img src="${p.url}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="gallery-caption">${'★'.repeat(p.rating)} ${p.productName.substring(0, 20)}</div>
+      `<div class="gallery-item" onclick="openImageModal('${escapeHtml(p.url)}')">
+        <img src="${escapeHtml(p.url)}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
+        <div class="gallery-caption">${'★'.repeat(p.rating)} ${escapeHtml(p.productName.substring(0, 20))}</div>
       </div>`
     ).join('');
   }

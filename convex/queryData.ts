@@ -366,3 +366,64 @@ export const getDrilldown = query({
       .sort((a, b) => b.total - a.total);
   },
 });
+
+// ─────────────────────────────────────────
+// 리뷰 세션 목록
+// ─────────────────────────────────────────
+
+export const listReviewSessions = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("reviewSessions")
+      .withIndex("by_uploadedAt")
+      .order("desc")
+      .take(50);
+  },
+});
+
+// ─────────────────────────────────────────
+// 리뷰 데이터 로드 (세션 ID 배열)
+// ─────────────────────────────────────────
+
+export const getReviews = query({
+  args: {
+    sessionIds: v.array(v.id("reviewSessions")),
+  },
+  handler: async (ctx, args) => {
+    let all: any[] = [];
+    for (const sid of args.sessionIds) {
+      const reviews = await ctx.db
+        .query("reviews")
+        .withIndex("by_session", (q: any) => q.eq("sessionId", sid))
+        .collect();
+      all = all.concat(reviews);
+    }
+    return all;
+  },
+});
+
+// ─────────────────────────────────────────
+// 리뷰 카테고리 목록 (세션 기반)
+// ─────────────────────────────────────────
+
+export const getReviewCategories = query({
+  args: {
+    sessionIds: v.array(v.id("reviewSessions")),
+  },
+  handler: async (ctx, args) => {
+    const catCounts: Record<string, number> = {};
+    for (const sid of args.sessionIds) {
+      const reviews = await ctx.db
+        .query("reviews")
+        .withIndex("by_session", (q: any) => q.eq("sessionId", sid))
+        .collect();
+      for (const r of reviews) {
+        catCounts[r.category] = (catCounts[r.category] || 0) + 1;
+      }
+    }
+    return Object.entries(catCounts)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
+  },
+});

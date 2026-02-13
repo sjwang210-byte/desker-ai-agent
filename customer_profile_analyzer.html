@@ -359,16 +359,17 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 
 <!-- Section: Convex DB -->
 <div class="card" id="convexCard">
-  <h2>Convex 데이터베이스</h2>
+  <h2>데이터 관리 (Convex DB)</h2>
   <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
     <div class="control-group" style="flex:1; min-width:200px;">
-      <label>이전 세션 불러오기</label>
-      <select id="selSession" onchange="loadFromConvex()">
-        <option value="">-- 세션 선택 --</option>
+      <label>기간 선택</label>
+      <select id="selPeriod" onchange="loadPeriodData()">
+        <option value="">-- 기간 선택 --</option>
+        <option value="__ALL__">전체 누적</option>
       </select>
     </div>
     <button class="btn btn-primary hidden" id="btnSaveConvex" onclick="saveToConvex()">DB에 저장</button>
-    <button class="btn btn-secondary" onclick="refreshSessions()">새로고침</button>
+    <button class="btn btn-secondary" onclick="refreshPeriods()">새로고침</button>
   </div>
   <div id="convexProgress" class="hidden" style="margin-top:12px;">
     <div style="background:var(--gray-200); border-radius:4px; height:8px; overflow:hidden;">
@@ -428,6 +429,10 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 
   <!-- Tab 1: Table -->
   <div class="tab-content active" id="tab-table">
+    <div style="margin-bottom:12px;">
+      <input type="text" id="searchInput" placeholder="카테고리/상품명 검색..." oninput="filterAndRender()"
+        style="width:100%; max-width:400px; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:14px; font-family:inherit;">
+    </div>
     <div class="table-wrapper" id="mainTable"></div>
     <div class="btn-group">
       <button class="btn btn-primary" onclick="exportExcel()">엑셀 다운로드</button>
@@ -499,6 +504,8 @@ let currentResult = null;
 let currentMetric = '결제금액';
 let currentChartType = 'bar-h';
 let mainChartInstance = null;
+let searchTerm = '';
+let availableMonths = [];  // Convex에서 로드된 기간 목록
 
 // ───────────────────────────────────────
 // File Upload
@@ -783,23 +790,44 @@ function renderCurrentTab() {
 function renderMetrics() {
   if (!currentResult) return;
   const r = currentResult;
+  const periodInfo = r.fromConvex && r.sessionIds
+    ? (r.sessionIds.length > 1 ? `누적 (${r.sessionIds.length}개월)` : '단일 기간')
+    : '로컬 데이터';
   document.getElementById('metricsRow').innerHTML = `
     <div class="metric-card"><div class="label">카테고리 수</div><div class="value">${r.data.length}개</div></div>
     <div class="metric-card"><div class="label">분석 차원</div><div class="value">${r.dimension}</div></div>
     <div class="metric-card"><div class="label">집계 수준</div><div class="value">${LEVEL_DISPLAY[r.level] || r.level}</div></div>
-    <div class="metric-card"><div class="label">지표</div><div class="value">${r.metric}</div></div>
+    <div class="metric-card"><div class="label">기간/지표</div><div class="value">${periodInfo} · ${r.metric}</div></div>
   `;
 }
 
 // ───────────────────────────────────────
 // Table Rendering
 // ───────────────────────────────────────
+function filterAndRender() {
+  searchTerm = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+  renderTable();
+}
+
+function getFilteredData() {
+  if (!currentResult) return [];
+  if (!searchTerm) return currentResult.data;
+  return currentResult.data.filter(row =>
+    (row.category || '').toLowerCase().includes(searchTerm)
+  );
+}
+
 function renderTable() {
   if (!currentResult) return;
-  const { data, attrValues, level } = currentResult;
+  const { attrValues, level } = currentResult;
+  const data = getFilteredData();
   const showAbs = document.getElementById('chkShowAbsolute').checked;
 
-  let html = '<table><thead><tr><th>카테고리</th>';
+  const totalCount = currentResult.data.length;
+  const filteredCount = data.length;
+  const filterInfo = searchTerm ? ` <span style="font-size:12px; color:var(--gray-500);">(${filteredCount}/${totalCount}건 표시)</span>` : '';
+
+  let html = filterInfo + '<table><thead><tr><th>카테고리</th>';
   for (const a of attrValues) html += `<th>${a}</th>`;
   html += '<th>합계</th></tr></thead><tbody>';
 
@@ -866,11 +894,11 @@ function executeDrilldown() {
   const childLevel = LEVEL_HIERARCHY[idx + 1];
 
   // Convex 모드면 서버에서 드릴다운
-  if (currentResult.fromConvex && currentResult.sessionId) {
+  if (currentResult.fromConvex && currentResult.sessionIds) {
     const levelMap = { '상품카테고리(대)': 'L1', '상품카테고리(중)': 'L2', '상품카테고리(소)': 'L3', '상품': 'product' };
     const metricMap = { '결제금액': 'paymentAmount', '결제수': 'paymentCount', '결제상품수량': 'paymentQuantity' };
     convexCall('query', 'queryData:getDrilldown', {
-      sessionId: currentResult.sessionId,
+      sessionIds: currentResult.sessionIds,
       dimension,
       parentLevel: levelMap[level] || 'L2',
       parentValue,
@@ -957,7 +985,8 @@ function renderChart() {
 }
 
 function renderBarChart() {
-  const { data, attrValues, dimension, level, metric } = currentResult;
+  const { attrValues, dimension, level, metric } = currentResult;
+  const data = getFilteredData();
   if (mainChartInstance) mainChartInstance.destroy();
 
   const isHorizontal = currentChartType === 'bar-h';
@@ -994,8 +1023,9 @@ function renderBarChart() {
 
 function populatePieSelector() {
   if (!currentResult) return;
+  const data = getFilteredData();
   const sel = document.getElementById('selPieCategory');
-  sel.innerHTML = currentResult.data.map(r => `<option value="${r.category}">${r.category}</option>`).join('');
+  sel.innerHTML = data.map(r => `<option value="${r.category}">${r.category}</option>`).join('');
 }
 
 function renderPieChart() {
@@ -1038,7 +1068,7 @@ function renderIntegrated() {
   const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
 
   // Convex 모드: 현재 분석 결과의 카테고리 목록 사용
-  if (currentResult && currentResult.fromConvex && currentResult.sessionId) {
+  if (currentResult && currentResult.fromConvex && currentResult.sessionIds) {
     const categories = currentResult.data.map(r => r.category);
     if (categories.length === 0) {
       container.innerHTML = '<div class="info-box">카테고리가 없습니다.</div>';
@@ -1095,12 +1125,12 @@ function renderIntegratedDetail() {
   const container = document.getElementById('integratedDetail');
 
   // Convex 모드
-  if (currentResult && currentResult.fromConvex && currentResult.sessionId) {
+  if (currentResult && currentResult.fromConvex && currentResult.sessionIds) {
     const levelMap = { '상품카테고리(대)': 'L1', '상품카테고리(중)': 'L2', '상품카테고리(소)': 'L3', '상품': 'product' };
     const metricMap = { '결제금액': 'paymentAmount', '결제수': 'paymentCount', '결제상품수량': 'paymentQuantity' };
     container.innerHTML = '<div class="info-box">통합 분석 로딩 중...</div>';
     convexCall('query', 'queryData:getIntegratedView', {
-      sessionId: currentResult.sessionId,
+      sessionIds: currentResult.sessionIds,
       aggregationLevel: levelMap[level] || 'L2',
       category,
       metric: metricMap[currentMetric] || 'paymentAmount',
@@ -1256,153 +1286,101 @@ function setConvexStatus(text, isError) {
   el.style.color = isError ? 'var(--danger)' : 'var(--success)';
 }
 
-// 세션 목록 불러오기
-async function refreshSessions() {
+// 기간 목록 불러오기
+async function refreshPeriods() {
   try {
-    const sessions = await convexCall('query', 'queryData:listSessions', {});
-    const sel = document.getElementById('selSession');
-    sel.innerHTML = '<option value="">-- 세션 선택 --</option>';
-    for (const s of sessions) {
-      const fileCount = s.files ? s.files.length : 0;
-      const dims = s.files ? s.files.map(f => f.dimension).join(', ') : '';
-      const date = new Date(s.uploadedAt).toLocaleString('ko-KR');
-      sel.innerHTML += `<option value="${s._id}">${s.periodStart} ~ ${s.periodEnd} (${fileCount}개 파일: ${dims}) - ${date}</option>`;
+    const months = await convexCall('query', 'queryData:getAvailableMonths', {});
+    availableMonths = months;
+    const sel = document.getElementById('selPeriod');
+    sel.innerHTML = '<option value="">-- 기간 선택 --</option><option value="__ALL__">전체 누적</option>';
+    for (const m of months) {
+      const date = new Date(m.uploadedAt).toLocaleDateString('ko-KR');
+      sel.innerHTML += `<option value="${m.sessionId}">${m.periodStart} ~ ${m.periodEnd} (${m.fileCount}개 파일) - ${date}</option>`;
     }
-    setConvexStatus(`${sessions.length}개 세션 로드됨`, false);
+    setConvexStatus(months.length > 0 ? `${months.length}개 기간 로드됨` : 'DB에 저장된 데이터 없음', false);
   } catch (err) {
-    setConvexStatus('세션 목록 로드 실패: ' + err.message, true);
+    setConvexStatus('기간 목록 로드 실패: ' + err.message, true);
   }
 }
 
 // 현재 데이터를 Convex에 저장
 async function saveToConvex() {
   const dims = Object.keys(profileData);
-  if (dims.length === 0) {
-    alert('업로드된 데이터가 없습니다.');
-    return;
-  }
-
+  if (dims.length === 0) { alert('업로드된 데이터가 없습니다.'); return; }
   if (!confirm(`${dims.length}개 차원 데이터를 Convex DB에 저장하시겠습니까?`)) return;
 
   try {
-    // Step 1: 날짜 범위 결정
     setProgress(5, '세션 생성 중...');
     let periodStart = '2025-01-01', periodEnd = '2025-12-31';
     for (const d of Object.values(profileData)) {
-      if (d.dateRange) {
-        periodStart = d.dateRange.start;
-        periodEnd = d.dateRange.end;
-        break;
-      }
+      if (d.dateRange) { periodStart = d.dateRange.start; periodEnd = d.dateRange.end; break; }
     }
 
-    const sessionId = await convexCall('mutation', 'uploadData:createSession', { periodStart, periodEnd });
+    const newSessionId = await convexCall('mutation', 'uploadData:createSession', { periodStart, periodEnd });
 
-    // Step 2: 카테고리 & 상품 upsert
     setProgress(10, '카테고리 및 상품 등록 중...');
-    const categoryCache = {};  // "L1|L2|L3" → Convex ID
-    const productCache = {};   // productId → Convex ID
+    const categoryCache = {};
+    const productCache = {};
+    const firstDf = profileData[dims[0]].df;
 
-    // 첫번째 차원의 데이터에서 카테고리/상품 추출
-    const firstDim = dims[0];
-    const firstDf = profileData[firstDim].df;
-
-    // 고유 카테고리 추출
     const uniqueCats = {};
     const uniqueProducts = {};
     for (const row of firstDf) {
-      const l1 = row['상품카테고리(대)'] || '';
-      const l2 = row['상품카테고리(중)'] || '';
-      const l3 = row['상품카테고리(소)'] || '';
+      const l1 = row['상품카테고리(대)'] || '', l2 = row['상품카테고리(중)'] || '', l3 = row['상품카테고리(소)'] || '';
       const key = `${l1}|${l2}|${l3}`;
       if (!uniqueCats[key]) uniqueCats[key] = { categoryL1: l1, categoryL2: l2, categoryL3: l3 };
-
-      const pid = row['상품ID'];
-      const pname = row['상품명'] || '';
-      if (pid && !uniqueProducts[pid]) {
-        uniqueProducts[pid] = { productId: Number(pid), productName: pname, catKey: key };
-      }
+      const pid = row['상품ID'], pname = row['상품명'] || '';
+      if (pid && !uniqueProducts[pid]) uniqueProducts[pid] = { productId: Number(pid), productName: pname, catKey: key };
     }
 
-    // 카테고리 등록
     const catKeys = Object.keys(uniqueCats);
     for (let i = 0; i < catKeys.length; i++) {
-      const cat = uniqueCats[catKeys[i]];
-      const catId = await convexCall('mutation', 'uploadData:upsertCategory', cat);
-      categoryCache[catKeys[i]] = catId;
+      categoryCache[catKeys[i]] = await convexCall('mutation', 'uploadData:upsertCategory', uniqueCats[catKeys[i]]);
       setProgress(10 + Math.round(i / catKeys.length * 15), `카테고리 등록 중... (${i + 1}/${catKeys.length})`);
     }
 
-    // 상품 등록
     const prodKeys = Object.keys(uniqueProducts);
     for (let i = 0; i < prodKeys.length; i++) {
       const p = uniqueProducts[prodKeys[i]];
       const catId = categoryCache[p.catKey];
       if (!catId) continue;
-      const prodId = await convexCall('mutation', 'uploadData:upsertProduct', {
-        productId: p.productId,
-        productName: p.productName,
-        categoryId: catId,
+      productCache[prodKeys[i]] = await convexCall('mutation', 'uploadData:upsertProduct', {
+        productId: p.productId, productName: p.productName, categoryId: catId,
       });
-      productCache[prodKeys[i]] = prodId;
-      if (i % 50 === 0) {
-        setProgress(25 + Math.round(i / prodKeys.length * 20), `상품 등록 중... (${i + 1}/${prodKeys.length})`);
-      }
+      if (i % 50 === 0) setProgress(25 + Math.round(i / prodKeys.length * 20), `상품 등록 중... (${i + 1}/${prodKeys.length})`);
     }
 
-    // Step 3: 각 차원별 프로파일 레코드 배치 삽입
     let dimIdx = 0;
     for (const [dim, data] of Object.entries(profileData)) {
-      const baseProgress = 45 + dimIdx * 15;
-      setProgress(baseProgress, `${dim} 데이터 업로드 중...`);
-
+      const base = 45 + dimIdx * 15;
+      setProgress(base, `${dim} 데이터 업로드 중...`);
       const records = [];
       for (const row of data.df) {
-        const pid = row['상품ID'];
-        const prodConvexId = productCache[pid];
+        const prodConvexId = productCache[row['상품ID']];
         if (!prodConvexId) continue;
-
         records.push({
-          sessionId: sessionId,
-          productId: prodConvexId,
-          dimension: dim,
+          sessionId: newSessionId, productId: prodConvexId, dimension: dim,
           attributeValue: row.attribute_value || '',
-          paymentAmount: safeNum(row['결제금액']),
-          paymentCount: safeNum(row['결제수']),
-          paymentQuantity: safeNum(row['결제상품수량']),
-          refundAmount: safeNum(row['환불금액']),
-          refundCount: safeNum(row['환불건수']),
-          refundQuantity: safeNum(row['환불수량']),
+          paymentAmount: safeNum(row['결제금액']), paymentCount: safeNum(row['결제수']),
+          paymentQuantity: safeNum(row['결제상품수량']), refundAmount: safeNum(row['환불금액']),
+          refundCount: safeNum(row['환불건수']), refundQuantity: safeNum(row['환불수량']),
         });
       }
-
-      // 배치 삽입 (100개씩)
       const BATCH = 100;
       for (let i = 0; i < records.length; i += BATCH) {
-        const batch = records.slice(i, i + BATCH);
-        await convexCall('mutation', 'uploadData:insertProfileRecords', { records: batch });
-        setProgress(
-          baseProgress + Math.round((i / records.length) * 15),
-          `${dim} 업로드 중... (${Math.min(i + BATCH, records.length)}/${records.length})`
-        );
+        await convexCall('mutation', 'uploadData:insertProfileRecords', { records: records.slice(i, i + BATCH) });
+        setProgress(base + Math.round((i / records.length) * 15), `${dim} 업로드 중... (${Math.min(i + BATCH, records.length)}/${records.length})`);
       }
-
-      // 세션 파일 정보 업데이트
       await convexCall('mutation', 'uploadData:updateSessionFile', {
-        sessionId: sessionId,
-        dimension: dim,
-        filename: data.filename,
-        rowCount: data.df.length,
+        sessionId: newSessionId, dimension: dim, filename: data.filename, rowCount: data.df.length,
       });
-
       dimIdx++;
     }
 
     setProgress(100, '저장 완료!');
-    setConvexStatus(`DB 저장 완료 (세션: ${sessionId})`, false);
-    await refreshSessions();
+    setConvexStatus('DB 저장 완료!', false);
+    await refreshPeriods();
     setTimeout(hideProgress, 3000);
-
   } catch (err) {
     setConvexStatus('저장 실패: ' + err.message, true);
     console.error('Convex save error:', err);
@@ -1410,26 +1388,43 @@ async function saveToConvex() {
   }
 }
 
-// Convex에서 세션 데이터 불러오기 (분석 결과를 서버에서 계산)
-async function loadFromConvex() {
-  const sessionId = document.getElementById('selSession').value;
-  if (!sessionId) return;
+// Convex에서 기간 데이터 불러오기 (전체 누적 또는 월별)
+async function loadPeriodData() {
+  const sel = document.getElementById('selPeriod').value;
+  if (!sel) return;
 
   try {
-    setProgress(10, '세션 정보 불러오는 중...');
+    setProgress(10, '데이터 불러오는 중...');
 
-    const session = await convexCall('query', 'queryData:getSession', { sessionId });
-    if (!session) {
-      setConvexStatus('세션을 찾을 수 없습니다.', true);
+    // 세션 ID 배열 결정
+    let sessionIds = [];
+    let periodLabel = '';
+
+    if (sel === '__ALL__') {
+      // 전체 누적: 모든 세션 ID
+      sessionIds = availableMonths.map(m => m.sessionId);
+      periodLabel = '전체 누적';
+    } else {
+      // 특정 기간
+      sessionIds = [sel];
+      const month = availableMonths.find(m => m.sessionId === sel);
+      periodLabel = month ? `${month.periodStart} ~ ${month.periodEnd}` : '선택 기간';
+    }
+
+    if (sessionIds.length === 0) {
+      setConvexStatus('저장된 세션이 없습니다.', true);
       hideProgress();
       return;
     }
 
-    setProgress(30, '카테고리 계층 불러오는 중...');
-    const hierarchy = await convexCall('query', 'queryData:getCategoryHierarchy', {});
-
-    // 세션에 포함된 차원별로 분석 결과 가져오기
-    const dims = session.files ? session.files.map(f => f.dimension) : [];
+    // 차원 목록 결정 (모든 세션에서 공통)
+    const allDims = new Set();
+    for (const m of availableMonths) {
+      if (sessionIds.includes(m.sessionId)) {
+        for (const d of m.dimensions) allDims.add(d);
+      }
+    }
+    const dims = [...allDims];
     if (dims.length === 0) {
       setConvexStatus('세션에 파일이 없습니다.', true);
       hideProgress();
@@ -1438,19 +1433,16 @@ async function loadFromConvex() {
 
     setProgress(50, '분석 결과 계산 중...');
 
-    // 첫번째 차원, 중분류, 결제금액 기본 분석
     const defaultDim = dims[0];
     const result = await convexCall('query', 'queryData:getPercentageDistribution', {
-      sessionId,
+      sessionIds,
       dimension: defaultDim,
       aggregationLevel: 'L2',
       metric: 'paymentAmount',
       excludeUnknown: true,
     });
 
-    // Convex 결과를 로컬 형식으로 변환
     let attrValues = DIMENSIONS[defaultDim].filter(a => a !== UNKNOWN_VALUE);
-
     const localData = result.map(r => {
       const row = { category: r.category, '합계': r.total };
       for (const d of r.distribution) {
@@ -1461,41 +1453,34 @@ async function loadFromConvex() {
     });
 
     currentResult = {
-      dimension: defaultDim,
-      level: '상품카테고리(중)',
-      metric: '결제금액',
-      excludeUnknown: true,
-      data: localData,
-      attrValues,
-      fromConvex: true,
-      sessionId,
+      dimension: defaultDim, level: '상품카테고리(중)', metric: '결제금액',
+      excludeUnknown: true, data: localData, attrValues,
+      fromConvex: true, sessionIds,
     };
 
     // UI 업데이트
     document.getElementById('controlsCard').classList.remove('hidden');
-    const dimSel = document.getElementById('selDimension');
-    dimSel.innerHTML = dims.map(d => `<option value="${d}">${d}</option>`).join('');
+    document.getElementById('selDimension').innerHTML = dims.map(d => `<option value="${d}">${d}</option>`).join('');
 
     // 상태 카드 업데이트
-    for (const f of session.files) {
-      const el = document.getElementById(`status-${f.dimension}`);
+    for (const dim of dims) {
+      const el = document.getElementById(`status-${dim}`);
       el.className = 'status-card loaded';
       el.innerHTML = `
-        <div class="dim-name">${f.dimension} — DB에서 로드</div>
-        <div class="dim-info">파일: ${f.filename}</div>
-        <div class="dim-info">행 수: ${f.rowCount.toLocaleString()}개</div>
-        <div class="dim-info">기간: ${session.periodStart} ~ ${session.periodEnd}</div>
+        <div class="dim-name">${dim} — DB (${periodLabel})</div>
+        <div class="dim-info">${sessionIds.length}개 세션 통합</div>
       `;
     }
 
     document.getElementById('resultsCard').classList.remove('hidden');
+    searchTerm = '';
+    document.getElementById('searchInput').value = '';
     renderMetrics();
     renderCurrentTab();
 
     setProgress(100, '불러오기 완료!');
-    setConvexStatus(`세션 로드 완료 (${dims.join(', ')})`, false);
+    setConvexStatus(`${periodLabel} 로드 완료 (${dims.join(', ')})`, false);
     setTimeout(hideProgress, 2000);
-
   } catch (err) {
     setConvexStatus('불러오기 실패: ' + err.message, true);
     console.error('Convex load error:', err);
@@ -1506,41 +1491,31 @@ async function loadFromConvex() {
 // runAnalysis를 Convex 모드에서도 동작하도록 확장
 const _originalRunAnalysis = runAnalysis;
 runAnalysis = function() {
-  // Convex 세션 로드 상태면 서버에서 재계산
-  if (currentResult && currentResult.fromConvex && currentResult.sessionId) {
+  if (currentResult && currentResult.fromConvex && currentResult.sessionIds) {
     const dimension = document.getElementById('selDimension').value;
     const level = document.getElementById('selLevel').value;
     const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
-
-    // LEVEL_HIERARCHY → Convex aggregationLevel 매핑
     const levelMap = { '상품카테고리(대)': 'L1', '상품카테고리(중)': 'L2', '상품카테고리(소)': 'L3', '상품': 'product' };
     const metricMap = { '결제금액': 'paymentAmount', '결제수': 'paymentCount', '결제상품수량': 'paymentQuantity' };
 
     convexCall('query', 'queryData:getPercentageDistribution', {
-      sessionId: currentResult.sessionId,
-      dimension,
+      sessionIds: currentResult.sessionIds, dimension,
       aggregationLevel: levelMap[level] || 'L2',
       metric: metricMap[currentMetric] || 'paymentAmount',
       excludeUnknown,
     }).then(result => {
       let attrValues = DIMENSIONS[dimension].slice();
       if (excludeUnknown) attrValues = attrValues.filter(a => a !== UNKNOWN_VALUE);
-
       const localData = result.map(r => {
         const row = { category: r.category, '합계': r.total };
-        for (const d of r.distribution) {
-          row[d.attributeValue] = d.percentage;
-          row[`${d.attributeValue}_abs`] = d.absoluteValue;
-        }
+        for (const d of r.distribution) { row[d.attributeValue] = d.percentage; row[`${d.attributeValue}_abs`] = d.absoluteValue; }
         return row;
       });
-
       currentResult = {
         dimension, level, metric: currentMetric, excludeUnknown,
         data: localData, attrValues,
-        fromConvex: true, sessionId: currentResult.sessionId,
+        fromConvex: true, sessionIds: currentResult.sessionIds,
       };
-
       document.getElementById('resultsCard').classList.remove('hidden');
       renderMetrics();
       renderCurrentTab();
@@ -1549,8 +1524,6 @@ runAnalysis = function() {
     });
     return;
   }
-
-  // 로컬 모드
   _originalRunAnalysis();
 };
 
@@ -1558,12 +1531,11 @@ runAnalysis = function() {
 const _originalUpdateStatus = updateStatus;
 updateStatus = function() {
   _originalUpdateStatus();
-  const hasDims = Object.keys(profileData).length > 0;
-  document.getElementById('btnSaveConvex').classList.toggle('hidden', !hasDims);
+  document.getElementById('btnSaveConvex').classList.toggle('hidden', Object.keys(profileData).length === 0);
 };
 
-// 페이지 로드 시 세션 목록 자동 불러오기
-refreshSessions();
+// 페이지 로드 시 기간 목록 자동 불러오기
+refreshPeriods();
 </script>
 </body>
 </html>

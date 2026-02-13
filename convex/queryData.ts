@@ -1,8 +1,132 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
 
 // ─────────────────────────────────────────
-// 세션 목록 조회
+// 내부 헬퍼 함수
+// ─────────────────────────────────────────
+
+type PRecord = Doc<"profileRecords">;
+type ProdInfo = { name: string; catId: string };
+type CatInfo = { L1: string; L2: string; L3: string };
+
+/** 여러 세션에서 프로파일 레코드 수집 */
+async function collectRecords(
+  ctx: any,
+  sessionIds: Id<"uploadSessions">[],
+  dimension: string,
+  excludeUnknown: boolean,
+): Promise<PRecord[]> {
+  let all: PRecord[] = [];
+  for (const sid of sessionIds) {
+    const recs = await ctx.db
+      .query("profileRecords")
+      .withIndex("by_session_dimension", (q: any) =>
+        q.eq("sessionId", sid).eq("dimension", dimension)
+      )
+      .collect();
+    all = all.concat(recs);
+  }
+  if (excludeUnknown) {
+    all = all.filter((r: PRecord) => r.attributeValue !== "(알수없음)");
+  }
+  return all;
+}
+
+/** 상품/카테고리 캐시 구축 */
+async function buildCaches(ctx: any, records: PRecord[]) {
+  const prodCache: Record<string, ProdInfo> = {};
+  const catCache: Record<string, CatInfo> = {};
+
+  for (const rec of records) {
+    const pid = rec.productId as unknown as string;
+    if (!prodCache[pid]) {
+      const product = await ctx.db.get(rec.productId);
+      if (!product) continue;
+      prodCache[pid] = {
+        name: product.productName,
+        catId: product.categoryId as unknown as string,
+      };
+    }
+    const catId = prodCache[pid].catId;
+    if (!catCache[catId]) {
+      const cat = await ctx.db.get(prodCache[pid].catId as any);
+      if (!cat) continue;
+      catCache[catId] = {
+        L1: cat.categoryL1,
+        L2: cat.categoryL2,
+        L3: cat.categoryL3,
+      };
+    }
+  }
+  return { prodCache, catCache };
+}
+
+/** 그룹 키 결정 */
+function groupKey(
+  rec: PRecord,
+  level: string,
+  prodCache: Record<string, ProdInfo>,
+  catCache: Record<string, CatInfo>,
+): string {
+  const pid = rec.productId as unknown as string;
+  const p = prodCache[pid];
+  if (!p) return "unknown";
+  const cat = catCache[p.catId];
+  if (!cat) return "unknown";
+  switch (level) {
+    case "L1": return cat.L1;
+    case "L2": return cat.L2;
+    case "L3": return cat.L3;
+    case "product": return p.name;
+    default: return cat.L2;
+  }
+}
+
+/** 지표값 추출 */
+function metricVal(rec: PRecord, metric: string): number {
+  switch (metric) {
+    case "paymentAmount": return rec.paymentAmount;
+    case "paymentCount": return rec.paymentCount;
+    case "paymentQuantity": return rec.paymentQuantity;
+    default: return rec.paymentAmount;
+  }
+}
+
+/** 비중 계산 공통 로직 */
+function calcDistribution(
+  records: PRecord[],
+  level: string,
+  metric: string,
+  prodCache: Record<string, ProdInfo>,
+  catCache: Record<string, CatInfo>,
+) {
+  const groups: Record<string, Record<string, number>> = {};
+  for (const rec of records) {
+    const key = groupKey(rec, level, prodCache, catCache);
+    if (key === "unknown") continue;
+    if (!groups[key]) groups[key] = {};
+    groups[key][rec.attributeValue] =
+      (groups[key][rec.attributeValue] || 0) + metricVal(rec, metric);
+  }
+
+  return Object.entries(groups)
+    .map(([category, attrs]) => {
+      const total = Object.values(attrs).reduce((s, v) => s + v, 0);
+      const distribution = Object.entries(attrs)
+        .map(([attributeValue, absoluteValue]) => ({
+          attributeValue,
+          percentage: total > 0 ? Math.round((absoluteValue / total) * 1000) / 10 : 0,
+          absoluteValue,
+        }))
+        .sort((a, b) => b.percentage - a.percentage);
+      return { category, total, distribution };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
+// ─────────────────────────────────────────
+// 세션/기간 관련
 // ─────────────────────────────────────────
 
 export const listSessions = query({
@@ -23,15 +147,38 @@ export const getSession = query({
   },
 });
 
+/** 사용 가능한 기간(월) 목록 */
+export const getAvailableMonths = query({
+  args: {},
+  handler: async (ctx) => {
+    const sessions = await ctx.db
+      .query("uploadSessions")
+      .withIndex("by_uploadedAt")
+      .order("desc")
+      .collect();
+
+    return sessions.map((s) => ({
+      sessionId: s._id,
+      periodStart: s.periodStart,
+      periodEnd: s.periodEnd,
+      fileCount: s.files ? s.files.length : 0,
+      dimensions: s.files
+        ? s.files.map((f: { dimension: string }) => f.dimension)
+        : [],
+      status: s.status,
+      uploadedAt: s.uploadedAt,
+    }));
+  },
+});
+
 // ─────────────────────────────────────────
-// 카테고리 목록 조회
+// 카테고리
 // ─────────────────────────────────────────
 
 export const getCategories = query({
   args: { level: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const all = await ctx.db.query("productCategories").collect();
-
     if (!args.level || args.level === "L1") {
       return [...new Set(all.map((c) => c.categoryL1))].sort();
     }
@@ -49,8 +196,6 @@ export const getCategoryHierarchy = query({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("productCategories").collect();
-
-    // 대분류 → 중분류 → 소분류 트리 구조
     const tree: Record<string, Record<string, string[]>> = {};
     for (const cat of all) {
       if (!tree[cat.categoryL1]) tree[cat.categoryL1] = {};
@@ -64,131 +209,35 @@ export const getCategoryHierarchy = query({
 });
 
 // ─────────────────────────────────────────
-// 비중 분석 쿼리 (핵심)
+// 비중 분석 (다중 세션 = 누적 지원)
 // ─────────────────────────────────────────
 
 export const getPercentageDistribution = query({
   args: {
-    sessionId: v.id("uploadSessions"),
+    sessionIds: v.array(v.id("uploadSessions")),
     dimension: v.string(),
-    aggregationLevel: v.string(), // "L1" | "L2" | "L3" | "product"
-    metric: v.string(),           // "paymentAmount" | "paymentCount" | "paymentQuantity"
+    aggregationLevel: v.string(),
+    metric: v.string(),
     excludeUnknown: v.boolean(),
   },
   handler: async (ctx, args) => {
-    // 해당 세션 + 차원의 모든 레코드
-    let records = await ctx.db
-      .query("profileRecords")
-      .withIndex("by_session_dimension", (q) =>
-        q.eq("sessionId", args.sessionId).eq("dimension", args.dimension)
-      )
-      .collect();
-
-    if (args.excludeUnknown) {
-      records = records.filter((r) => r.attributeValue !== "(알수없음)");
-    }
-
-    // 상품 + 카테고리 조인
-    const productCache: Record<string, { name: string; catId: string }> = {};
-    const categoryCache: Record<
-      string,
-      { L1: string; L2: string; L3: string }
-    > = {};
-
-    for (const rec of records) {
-      const pid = rec.productId as string;
-      if (!productCache[pid]) {
-        const product = await ctx.db.get(rec.productId);
-        if (!product) continue;
-        productCache[pid] = {
-          name: product.productName,
-          catId: product.categoryId as string,
-        };
-      }
-      const catId = productCache[pid].catId;
-      if (!categoryCache[catId]) {
-        const cat = await ctx.db.get(productCache[pid].catId as any);
-        if (!cat) continue;
-        categoryCache[catId] = {
-          L1: cat.categoryL1,
-          L2: cat.categoryL2,
-          L3: cat.categoryL3,
-        };
-      }
-    }
-
-    // 집계 레벨에 따른 그룹핑
-    const getGroupKey = (rec: (typeof records)[0]): string => {
-      const pid = rec.productId as string;
-      const p = productCache[pid];
-      if (!p) return "unknown";
-      const cat = categoryCache[p.catId];
-      if (!cat) return "unknown";
-
-      switch (args.aggregationLevel) {
-        case "L1":
-          return cat.L1;
-        case "L2":
-          return cat.L2;
-        case "L3":
-          return cat.L3;
-        case "product":
-          return p.name;
-        default:
-          return cat.L2;
-      }
-    };
-
-    const getMetricValue = (rec: (typeof records)[0]): number => {
-      switch (args.metric) {
-        case "paymentAmount":
-          return rec.paymentAmount;
-        case "paymentCount":
-          return rec.paymentCount;
-        case "paymentQuantity":
-          return rec.paymentQuantity;
-        default:
-          return rec.paymentAmount;
-      }
-    };
-
-    // 그룹별 속성값 합산
-    const groups: Record<string, Record<string, number>> = {};
-    for (const rec of records) {
-      const key = getGroupKey(rec);
-      if (key === "unknown") continue;
-      if (!groups[key]) groups[key] = {};
-      groups[key][rec.attributeValue] =
-        (groups[key][rec.attributeValue] || 0) + getMetricValue(rec);
-    }
-
-    // 비율 계산 + 정렬
-    const result = Object.entries(groups)
-      .map(([category, attrs]) => {
-        const total = Object.values(attrs).reduce((s, v) => s + v, 0);
-        const distribution = Object.entries(attrs)
-          .map(([attributeValue, absoluteValue]) => ({
-            attributeValue,
-            percentage: total > 0 ? Math.round((absoluteValue / total) * 1000) / 10 : 0,
-            absoluteValue,
-          }))
-          .sort((a, b) => b.percentage - a.percentage);
-
-        return { category, total, distribution };
-      })
-      .sort((a, b) => b.total - a.total);
-
-    return result;
+    const records = await collectRecords(
+      ctx, args.sessionIds, args.dimension, args.excludeUnknown,
+    );
+    const { prodCache, catCache } = await buildCaches(ctx, records);
+    return calcDistribution(
+      records, args.aggregationLevel, args.metric, prodCache, catCache,
+    );
   },
 });
 
 // ─────────────────────────────────────────
-// 통합 분석 (3차원 동시)
+// 통합 분석 (3차원 동시, 다중 세션)
 // ─────────────────────────────────────────
 
 export const getIntegratedView = query({
   args: {
-    sessionId: v.id("uploadSessions"),
+    sessionIds: v.array(v.id("uploadSessions")),
     aggregationLevel: v.string(),
     category: v.string(),
     metric: v.string(),
@@ -199,53 +248,31 @@ export const getIntegratedView = query({
     const results = [];
 
     for (const dimension of dimensions) {
-      let records = await ctx.db
-        .query("profileRecords")
-        .withIndex("by_session_dimension", (q) =>
-          q.eq("sessionId", args.sessionId).eq("dimension", dimension)
-        )
-        .collect();
-
-      if (args.excludeUnknown) {
-        records = records.filter((r) => r.attributeValue !== "(알수없음)");
-      }
+      const records = await collectRecords(
+        ctx, args.sessionIds, dimension, args.excludeUnknown,
+      );
+      const { prodCache, catCache } = await buildCaches(ctx, records);
 
       // 해당 카테고리에 속하는 레코드 필터
-      const filtered = [];
-      for (const rec of records) {
-        const product = await ctx.db.get(rec.productId);
-        if (!product) continue;
-        const cat = await ctx.db.get(product.categoryId);
-        if (!cat) continue;
-
-        let match = false;
+      const filtered = records.filter((rec) => {
+        const pid = rec.productId as unknown as string;
+        const p = prodCache[pid];
+        if (!p) return false;
+        const cat = catCache[p.catId];
+        if (!cat) return false;
         switch (args.aggregationLevel) {
-          case "L1":
-            match = cat.categoryL1 === args.category;
-            break;
-          case "L2":
-            match = cat.categoryL2 === args.category;
-            break;
-          case "L3":
-            match = cat.categoryL3 === args.category;
-            break;
-          case "product":
-            match = product.productName === args.category;
-            break;
+          case "L1": return cat.L1 === args.category;
+          case "L2": return cat.L2 === args.category;
+          case "L3": return cat.L3 === args.category;
+          case "product": return p.name === args.category;
         }
-        if (match) filtered.push(rec);
-      }
+        return false;
+      });
 
-      // 속성값별 합산
       const sums: Record<string, number> = {};
       for (const rec of filtered) {
-        const val =
-          args.metric === "paymentCount"
-            ? rec.paymentCount
-            : args.metric === "paymentQuantity"
-              ? rec.paymentQuantity
-              : rec.paymentAmount;
-        sums[rec.attributeValue] = (sums[rec.attributeValue] || 0) + val;
+        sums[rec.attributeValue] =
+          (sums[rec.attributeValue] || 0) + metricVal(rec, args.metric);
       }
 
       const total = Object.values(sums).reduce((s, v) => s + v, 0);
@@ -268,65 +295,57 @@ export const getIntegratedView = query({
 });
 
 // ─────────────────────────────────────────
-// 드릴다운 (상위 카테고리 → 하위)
+// 드릴다운 (다중 세션)
 // ─────────────────────────────────────────
 
 export const getDrilldown = query({
   args: {
-    sessionId: v.id("uploadSessions"),
+    sessionIds: v.array(v.id("uploadSessions")),
     dimension: v.string(),
-    parentLevel: v.string(),    // "L1" | "L2"
+    parentLevel: v.string(),
     parentValue: v.string(),
     metric: v.string(),
     excludeUnknown: v.boolean(),
   },
   handler: async (ctx, args) => {
     const childLevel =
-      args.parentLevel === "L1" ? "L2" : args.parentLevel === "L2" ? "L3" : "product";
+      args.parentLevel === "L1"
+        ? "L2"
+        : args.parentLevel === "L2"
+          ? "L3"
+          : "product";
 
-    let records = await ctx.db
-      .query("profileRecords")
-      .withIndex("by_session_dimension", (q) =>
-        q.eq("sessionId", args.sessionId).eq("dimension", args.dimension)
-      )
-      .collect();
+    const records = await collectRecords(
+      ctx, args.sessionIds, args.dimension, args.excludeUnknown,
+    );
+    const { prodCache, catCache } = await buildCaches(ctx, records);
 
-    if (args.excludeUnknown) {
-      records = records.filter((r) => r.attributeValue !== "(알수없음)");
-    }
-
-    // 부모 카테고리에 속하는 레코드 필터 + 자식 레벨로 그룹핑
+    // 부모 카테고리 필터 + 자식 레벨 그룹핑
     const groups: Record<string, Record<string, number>> = {};
-
     for (const rec of records) {
-      const product = await ctx.db.get(rec.productId);
-      if (!product) continue;
-      const cat = await ctx.db.get(product.categoryId);
+      const pid = rec.productId as unknown as string;
+      const p = prodCache[pid];
+      if (!p) continue;
+      const cat = catCache[p.catId];
       if (!cat) continue;
 
-      // 부모 매칭
       let parentMatch = false;
-      if (args.parentLevel === "L1") parentMatch = cat.categoryL1 === args.parentValue;
-      else if (args.parentLevel === "L2") parentMatch = cat.categoryL2 === args.parentValue;
-      else if (args.parentLevel === "L3") parentMatch = cat.categoryL3 === args.parentValue;
+      if (args.parentLevel === "L1") parentMatch = cat.L1 === args.parentValue;
+      else if (args.parentLevel === "L2")
+        parentMatch = cat.L2 === args.parentValue;
+      else if (args.parentLevel === "L3")
+        parentMatch = cat.L3 === args.parentValue;
       if (!parentMatch) continue;
 
-      // 자식 키
       let childKey = "";
-      if (childLevel === "L2") childKey = cat.categoryL2;
-      else if (childLevel === "L3") childKey = cat.categoryL3;
-      else childKey = product.productName;
-
-      const val =
-        args.metric === "paymentCount"
-          ? rec.paymentCount
-          : args.metric === "paymentQuantity"
-            ? rec.paymentQuantity
-            : rec.paymentAmount;
+      if (childLevel === "L2") childKey = cat.L2;
+      else if (childLevel === "L3") childKey = cat.L3;
+      else childKey = p.name;
 
       if (!groups[childKey]) groups[childKey] = {};
       groups[childKey][rec.attributeValue] =
-        (groups[childKey][rec.attributeValue] || 0) + val;
+        (groups[childKey][rec.attributeValue] || 0) +
+        metricVal(rec, args.metric);
     }
 
     return Object.entries(groups)
@@ -335,7 +354,10 @@ export const getDrilldown = query({
         const distribution = Object.entries(attrs)
           .map(([attributeValue, absoluteValue]) => ({
             attributeValue,
-            percentage: total > 0 ? Math.round((absoluteValue / total) * 1000) / 10 : 0,
+            percentage:
+              total > 0
+                ? Math.round((absoluteValue / total) * 1000) / 10
+                : 0,
             absoluteValue,
           }))
           .sort((a, b) => b.percentage - a.percentage);

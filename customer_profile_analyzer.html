@@ -371,6 +371,13 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 .img-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:1000; background:rgba(0,0,0,0.85); justify-content:center; align-items:center; cursor:pointer; }
 .img-modal.show { display:flex; }
 .img-modal img { max-width:90vw; max-height:90vh; border-radius:8px; }
+
+/* Keyword drilldown */
+.kw-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; border-radius:4px; padding:2px 4px; transition:background 0.15s; }
+.kw-row:hover { background:rgba(0,0,0,0.04); }
+.kw-row.active { background:rgba(0,0,0,0.07); }
+.kw-drilldown { margin-top:20px; border-top:1px solid var(--gray-200); padding-top:16px; }
+.kw-drilldown-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 </style>
 </head>
 <body>
@@ -662,6 +669,15 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
           <canvas id="keywordChart"></canvas>
         </div>
       </div>
+    </div>
+    <!-- 키워드 드릴다운: 클릭 시 해당 리뷰 표시 -->
+    <div class="kw-drilldown hidden" id="kwDrilldown">
+      <div class="kw-drilldown-header">
+        <h3 style="font-size:15px;"><span id="kwDrilldownTitle"></span> — 관련 리뷰 <span id="kwDrilldownCount" class="badge badge-photo"></span></h3>
+        <button class="btn btn-secondary" onclick="closeKwDrilldown()" style="padding:4px 12px; font-size:12px;">닫기</button>
+      </div>
+      <div id="kwDrilldownList"></div>
+      <div class="pagination" id="kwDrilldownPagination"></div>
     </div>
   </div>
 
@@ -2392,24 +2408,28 @@ function renderPagination(containerId, currentPage, totalPages, onPageClick) {
 // ───────────────────────────────────────
 // Review - Keyword Analysis (의미 키워드)
 // ───────────────────────────────────────
+// 키워드 → 리뷰 매핑 (드릴다운용)
+let kwReviewMap = {}; // { 키워드: [review, ...] }
+let kwDrilldownPage = 1;
+const KW_DRILLDOWN_PER_PAGE = 10;
+
 function renderKeywords() {
   const reviews = getFilteredReviews();
   const catFreq = {};
   for (const cat of Object.keys(KEYWORD_DICT)) catFreq[cat] = {};
   const allFreq = {};
+  kwReviewMap = {};
 
   for (const r of reviews) {
     if (!r.content) continue;
     const text = r.content;
     const seen = new Set();
 
-    // 복합 키워드부터 매칭 (긴 것 우선)
     for (const w of SORTED_KEYWORDS) {
       if (seen.has(w)) continue;
       const idx = text.indexOf(w);
       if (idx === -1) continue;
 
-      // 부정 문맥 체크 — 만족이유 키워드가 부정형이면 불만족으로 전환
       const cat = KEYWORD_TO_CATEGORY[w];
       let finalCat = cat;
       if (cat === '만족 이유') {
@@ -2423,6 +2443,10 @@ function renderKeywords() {
       const displayKey = finalCat !== cat ? w + '(부정)' : w;
       catFreq[finalCat][displayKey] = (catFreq[finalCat][displayKey] || 0) + 1;
       allFreq[displayKey] = (allFreq[displayKey] || 0) + 1;
+
+      // 리뷰 매핑 저장
+      if (!kwReviewMap[displayKey]) kwReviewMap[displayKey] = [];
+      kwReviewMap[displayKey].push({ review: r, matchedKeyword: w });
     }
   }
 
@@ -2451,12 +2475,13 @@ function renderKeywords() {
       <div style="padding:12px 16px;">
         ${sorted.length === 0 ? '<div style="color:var(--gray-500); font-size:13px;">데이터 없음</div>' :
           sorted.map(([w, cnt]) =>
-            `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            `<div class="kw-row" onclick="openKwDrilldown('${escapeHtml(w)}')" title="클릭하여 '${w}' 관련 리뷰 보기">
               <span style="min-width:60px; font-size:13px; font-weight:500;">${w}</span>
               <div style="flex:1; background:var(--gray-100); border-radius:3px; height:16px; overflow:hidden;">
                 <div style="width:${Math.round(cnt / maxF * 100)}%; height:100%; background:${style.bar}; border-radius:3px;"></div>
               </div>
               <span style="min-width:40px; text-align:right; font-size:12px; color:var(--gray-500);">${cnt}</span>
+              <span style="font-size:11px; color:var(--gray-500);">▸</span>
             </div>`
           ).join('')}
       </div>
@@ -2475,7 +2500,7 @@ function renderKeywords() {
         const cleanWord = word.replace('(부정)', '');
         const cat = KEYWORD_TO_CATEGORY[cleanWord] || (word.includes('(부정)') ? '불만족 이유' : '');
         const shortCat = cat.split(' ')[0];
-        return `<tr><td>${i + 1}</td><td>${word}</td><td style="font-size:11px;">${shortCat}</td><td>${cnt}</td>
+        return `<tr style="cursor:pointer;" onclick="openKwDrilldown('${escapeHtml(word)}')"><td>${i + 1}</td><td>${word}</td><td style="font-size:11px;">${shortCat}</td><td>${cnt}</td>
         <td><div style="background:var(--primary-light); border-radius:3px; height:18px; width:${Math.round(cnt / maxFreq * 100)}%;">
           <div style="background:var(--primary); height:100%; border-radius:3px; width:100%;"></div>
         </div></td></tr>`;
@@ -2483,13 +2508,14 @@ function renderKeywords() {
     </tbody></table>`;
   }
 
-  // Chart
+  // Chart — 클릭 이벤트 추가
   if (keywordChartInstance) { keywordChartInstance.destroy(); keywordChartInstance = null; }
   const top20 = allSorted.slice(0, 20);
   if (top20.length > 0) {
     const ctx = document.getElementById('keywordChart').getContext('2d');
     const barColors = top20.map(([w]) => {
-      const cat = KEYWORD_TO_CATEGORY[w];
+      const cleanW = w.replace('(부정)', '');
+      const cat = KEYWORD_TO_CATEGORY[cleanW];
       return (catColors[cat] || {}).bar || '#90CAF9';
     });
     keywordChartInstance = new Chart(ctx, {
@@ -2512,9 +2538,84 @@ function renderKeywords() {
           x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
           y: { grid: { display: false } },
         },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const keyword = top20[idx][0];
+            openKwDrilldown(keyword);
+          }
+        },
       },
     });
   }
+
+  // 드릴다운 닫기
+  closeKwDrilldown();
+}
+
+// ───────────────────────────────────────
+// Keyword Drilldown (키워드 클릭 → 리뷰 보기)
+// ───────────────────────────────────────
+function openKwDrilldown(keyword) {
+  const entries = kwReviewMap[keyword];
+  if (!entries || entries.length === 0) return;
+
+  kwDrilldownPage = 1;
+  const panel = document.getElementById('kwDrilldown');
+  panel.classList.remove('hidden');
+  document.getElementById('kwDrilldownTitle').textContent = `"${keyword}"`;
+  document.getElementById('kwDrilldownCount').textContent = `${entries.length}건`;
+
+  // 카드 카드 active 표시
+  document.querySelectorAll('.kw-row').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.kw-row').forEach(el => {
+    const span = el.querySelector('span');
+    if (span && span.textContent.trim() === keyword) el.classList.add('active');
+  });
+
+  renderKwDrilldownPage(keyword);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderKwDrilldownPage(keyword) {
+  const entries = kwReviewMap[keyword] || [];
+  const totalPages = Math.ceil(entries.length / KW_DRILLDOWN_PER_PAGE) || 1;
+  if (kwDrilldownPage > totalPages) kwDrilldownPage = totalPages;
+  const start = (kwDrilldownPage - 1) * KW_DRILLDOWN_PER_PAGE;
+  const page = entries.slice(start, start + KW_DRILLDOWN_PER_PAGE);
+
+  const container = document.getElementById('kwDrilldownList');
+  container.innerHTML = page.map(({ review: r, matchedKeyword: kw }) => {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(Math.max(0, 5 - r.rating));
+    // 본문에서 키워드 하이라이트
+    const highlighted = escapeHtml(r.content || '').replace(
+      new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+      `<mark style="background:#FFF176; padding:0 2px; border-radius:2px; font-weight:600;">$&</mark>`
+    );
+    return `<div class="review-item">
+      <div class="review-header">
+        <span class="stars">${stars}</span>
+        ${r.isMonth ? '<span class="badge badge-month">한달사용</span>' : ''}
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">${r.category}</span>
+      </div>
+      <div class="review-product">${escapeHtml(r.productName)} (${r.productId})</div>
+      <div class="review-body">${highlighted}</div>
+      <div class="review-meta">
+        <span>${escapeHtml(r.author || '익명')}</span>
+        <span>${r.date || '-'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  renderPagination('kwDrilldownPagination', kwDrilldownPage, totalPages, (p) => {
+    kwDrilldownPage = p;
+    renderKwDrilldownPage(keyword);
+  });
+}
+
+function closeKwDrilldown() {
+  document.getElementById('kwDrilldown').classList.add('hidden');
+  document.querySelectorAll('.kw-row').forEach(el => el.classList.remove('active'));
 }
 
 // ───────────────────────────────────────

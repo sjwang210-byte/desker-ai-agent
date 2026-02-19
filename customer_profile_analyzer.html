@@ -773,7 +773,7 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 // Constants
 // ───────────────────────────────────────
 const DIMENSIONS = {
-  '자녀나이': ['초등학생', '미취학', '자녀없음', '중고등학생', '0-24개월', '성인', '(알수없음)'],
+  '자녀나이': ['자녀없음', '0-24개월', '미취학', '초등학생', '중고등학생', '성인', '(알수없음)'],
   '결혼상태': ['기혼', '미혼', '(알수없음)'],
   '가구당인원': ['2인이상', '1인', '(알수없음)'],
 };
@@ -1247,7 +1247,6 @@ async function toggleRowExpand(category) {
 // 소분류 → 상품명 매핑 빌드
 function buildCategoryProductMap() {
   categoryProductMap = {};
-  // 모든 차원의 데이터에서 매핑 구축 (첫 번째 차원만 사용해도 충분)
   const dims = Object.keys(profileData);
   if (dims.length === 0) return;
   const df = profileData[dims[0]].df;
@@ -1262,6 +1261,17 @@ function buildCategoryProductMap() {
       seen[key] = true;
       categoryProductMap[cat].push(name);
     }
+  }
+}
+
+// Convex에서 소분류→상품명 매핑 로드
+async function fetchProductMapFromConvex() {
+  try {
+    const result = await convexCall('query', 'queryData:getProductsByCategory', {});
+    categoryProductMap = result || {};
+  } catch (err) {
+    console.warn('상품 매핑 로드 실패:', err);
+    categoryProductMap = {};
   }
 }
 
@@ -1907,6 +1917,9 @@ async function loadPeriodData() {
     renderMetrics();
     renderCurrentTab();
 
+    // Convex에서 소분류→상품명 매핑 로드 (툴팁용)
+    fetchProductMapFromConvex();
+
     setProgress(100, '불러오기 완료!');
     setConvexStatus(`${periodLabel} 로드 완료 (${dims.join(', ')})`, false);
     setTimeout(hideProgress, 2000);
@@ -1927,6 +1940,8 @@ runAnalysis = function() {
     // Reset expand state on analysis change
     expandedRows = new Set();
     childDataCache = {};
+    // 상품 매핑이 비어있으면 Convex에서 로드
+    if (Object.keys(categoryProductMap).length === 0) fetchProductMapFromConvex();
 
     const dimension = document.getElementById('selDimension').value;
     const level = document.getElementById('selLevel').value;

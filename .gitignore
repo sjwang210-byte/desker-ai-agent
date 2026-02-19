@@ -42,3 +42,5 @@ node_modules/
 *.ps1
 analyze_excel.py
 excel_analysis_result.txt
+
+.vercel

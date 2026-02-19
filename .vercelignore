@@ -1,0 +1,38 @@
+# Python
+python/
+.venv/
+__pycache__/
+*.py
+*.pyc
+
+# Node
+node_modules/
+
+# Convex source (backend only)
+convex/
+
+# Data
+data/
+*.xlsx
+*.xls
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+
+# Misc
+gh_cli/
+docs/
+*.ps1
+*.zip
+*.txt
+.env
+.env.local
+.streamlit/
+components/
+core/
+prompts/
+utils/

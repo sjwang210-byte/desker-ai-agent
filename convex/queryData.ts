@@ -407,6 +407,38 @@ export const getReviews = query({
 // 리뷰 카테고리 목록 (세션 기반)
 // ─────────────────────────────────────────
 
+// ─────────────────────────────────────────
+// 소분류 → 상품명 매핑 (툴팁용)
+// ─────────────────────────────────────────
+
+export const getProductsByCategory = query({
+  args: {},
+  handler: async (ctx) => {
+    const products = await ctx.db.query("products").collect();
+    const categories = await ctx.db.query("productCategories").collect();
+    const catMap: Record<string, CatInfo> = {};
+    for (const c of categories) {
+      catMap[c._id as unknown as string] = {
+        L1: c.categoryL1,
+        L2: c.categoryL2,
+        L3: c.categoryL3,
+      };
+    }
+    const result: Record<string, string[]> = {};
+    for (const p of products) {
+      const cat = catMap[p.categoryId as unknown as string];
+      if (!cat) continue;
+      const key = cat.L3;
+      if (!key || key === "-") continue;
+      if (!result[key]) result[key] = [];
+      if (!result[key].includes(p.productName)) {
+        result[key].push(p.productName);
+      }
+    }
+    return result;
+  },
+});
+
 export const getReviewCategories = query({
   args: {
     sessionIds: v.array(v.id("reviewSessions")),

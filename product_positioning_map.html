@@ -262,12 +262,14 @@ tbody tr:hover { background: var(--primary-light); }
       <div id="upload-status" class="hidden" style="margin-top:16px;"></div>
     </div>
 
-    <!-- Step 2: Category Select (for transposed) -->
+    <!-- Step 2: Sheet/Category Select (for transposed) -->
     <div class="card hidden" id="card-category">
-      <h2><span>2</span> 카테고리 선택</h2>
+      <h2><span>2</span> 분석할 시트 선택</h2>
+      <p style="font-size:13px;color:var(--gray-700);margin-bottom:12px;">엑셀의 각 시트가 하나의 카테고리입니다. 분석할 시트를 선택하세요.</p>
+      <div id="sheet-list" style="margin-bottom:12px;"></div>
       <div class="controls-grid">
         <div>
-          <label>분석할 카테고리</label>
+          <label>시트 선택</label>
           <select id="sel-category"></select>
         </div>
       </div>
@@ -659,11 +661,37 @@ function showCategorySelector(parsed) {
   const card = document.getElementById('card-category');
   card.classList.remove('hidden');
   card.classList.add('fade-in');
+
+  // 시트 목록 카드
+  const listBox = document.getElementById('sheet-list');
+  listBox.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;">${parsed.categories.map((c,i) =>
+    `<div class="sheet-card" data-idx="${i}" onclick="document.getElementById('sel-category').value=${i};selectCategory(${i});"
+      style="padding:12px 16px;border:2px solid ${i===0?'var(--primary)':'var(--gray-200)'};border-radius:var(--radius);
+      cursor:pointer;background:${i===0?'var(--primary-light)':'white'};flex:1;min-width:180px;transition:all 0.15s;">
+      <div style="font-size:14px;font-weight:700;color:${i===0?'var(--primary)':'var(--gray-900)'};">${c.name}</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:4px;">
+        ${c.products.length}개 제품 · ${c.spec_fields.length}개 스펙 항목
+      </div>
+      <div style="font-size:11px;color:var(--gray-500);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        스펙: ${c.spec_fields.slice(0,4).join(', ')}${c.spec_fields.length > 4 ? ' ...' : ''}
+      </div>
+    </div>`
+  ).join('')}</div>`;
+
   const sel = document.getElementById('sel-category');
   sel.innerHTML = parsed.categories.map((c,i) =>
-    `<option value="${i}">${c.name} (${c.products.length}개 제품)</option>`
+    `<option value="${i}">📄 ${c.name} — ${c.products.length}개 제품, ${c.spec_fields.length}개 스펙</option>`
   ).join('');
-  sel.onchange = () => selectCategory(parseInt(sel.value));
+  sel.onchange = () => {
+    const idx = parseInt(sel.value);
+    selectCategory(idx);
+    // 시트 카드 하이라이트 업데이트
+    document.querySelectorAll('.sheet-card').forEach((el,i) => {
+      el.style.borderColor = i===idx ? 'var(--primary)' : 'var(--gray-200)';
+      el.style.background = i===idx ? 'var(--primary-light)' : 'white';
+      el.querySelector('div').style.color = i===idx ? 'var(--primary)' : 'var(--gray-900)';
+    });
+  };
   selectCategory(0);
 }
 

@@ -3,7 +3,8 @@
   "outputDirectory": ".",
   "installCommand": "",
   "rewrites": [
-    { "source": "/", "destination": "/customer_profile_analyzer.html" }
+    { "source": "/", "destination": "/customer_profile_analyzer.html" },
+    { "source": "/positioning", "destination": "/product_positioning_map.html" }
   ],
   "headers": [
     {

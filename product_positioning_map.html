@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>제품 포지셔닝 맵</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+:root {
+  --primary: #1E88E5;
+  --primary-light: #E3F2FD;
+  --primary-dark: #1565C0;
+  --success: #43A047;
+  --success-light: #E8F5E9;
+  --warning: #FB8C00;
+  --warning-light: #FFF3E0;
+  --danger: #E53935;
+  --purple: #9C27B0;
+  --gray-50: #FAFAFA;
+  --gray-100: #F5F5F5;
+  --gray-200: #EEEEEE;
+  --gray-300: #E0E0E0;
+  --gray-500: #9E9E9E;
+  --gray-700: #616161;
+  --gray-900: #212121;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  background: var(--gray-50);
+  color: var(--gray-900);
+  line-height: 1.6;
+}
+.app-layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 260px; min-width: 260px; background: #1a2233; color: #ccc; padding: 0;
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100;
+  overflow-y: auto;
+}
+.sidebar-brand { padding: 20px 20px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.sidebar-brand h1 { font-size: 17px; color: white; font-weight: 700; }
+.sidebar-brand p { font-size: 11px; color: #8899aa; margin-top: 2px; }
+.sidebar-section { padding: 12px 0 4px; }
+.sidebar-section-title { padding: 0 20px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #667788; margin-bottom: 4px; }
+.sidebar-item {
+  display: block; padding: 9px 20px 9px 24px; font-size: 13px; color: #aabbcc; cursor: pointer;
+  transition: all 0.15s; border-left: 3px solid transparent; text-decoration: none;
+}
+.sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
+.sidebar-item.active { background: rgba(30,136,229,0.15); color: #64B5F6; border-left-color: #1E88E5; font-weight: 600; }
+.sidebar-item .icon { margin-right: 8px; font-size: 14px; }
+.main-content { margin-left: 260px; flex: 1; padding: 24px 32px; max-width: 1400px; }
+
+.header-bar {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white; padding: 16px 24px; border-radius: var(--radius); margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+.header-bar h2 { font-size: 18px; font-weight: 700; }
+.header-bar p { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+
+.card {
+  background: white; border-radius: var(--radius); padding: 24px;
+  margin-bottom: 20px; box-shadow: var(--shadow);
+}
+.card h2 {
+  font-size: 16px; font-weight: 700; color: var(--primary);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+
+.upload-area {
+  border: 2px dashed var(--gray-300); border-radius: var(--radius); padding: 40px;
+  text-align: center; cursor: pointer; transition: all 0.2s; background: var(--gray-50);
+}
+.upload-area:hover, .upload-area.dragover { border-color: var(--primary); background: var(--primary-light); }
+.upload-area .icon { font-size: 48px; margin-bottom: 12px; }
+.upload-area p { color: var(--gray-700); font-size: 14px; }
+.upload-area input { display: none; }
+
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.metric-card {
+  padding: 16px; border-radius: var(--radius); border: 1px solid var(--gray-200);
+  text-align: center; background: white;
+}
+.metric-card .value { font-size: 24px; font-weight: 700; color: var(--primary); }
+.metric-card .label { font-size: 12px; color: var(--gray-700); margin-top: 4px; }
+
+.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--gray-200); margin-bottom: 16px; }
+.tab-btn {
+  padding: 10px 20px; font-size: 14px; font-weight: 600; border: none; background: none;
+  color: var(--gray-500); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--gray-700); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.btn {
+  padding: 10px 20px; border-radius: var(--radius); font-size: 14px; font-weight: 600;
+  cursor: pointer; border: none; transition: all 0.15s;
+}
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: var(--gray-200); color: var(--gray-700); }
+.btn-secondary:hover { background: var(--gray-300); }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+select, input[type="number"], input[type="text"] {
+  padding: 8px 12px; border: 1px solid var(--gray-300); border-radius: var(--radius);
+  font-size: 13px; font-family: inherit; width: 100%;
+}
+select:focus, input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(30,136,229,0.15); }
+label { display: block; font-size: 13px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; }
+
+.controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  background: var(--primary); color: white; padding: 10px 12px; text-align: left;
+  font-weight: 600; position: sticky; top: 0;
+}
+tbody td { padding: 8px 12px; border-bottom: 1px solid var(--gray-200); }
+tbody tr:hover { background: var(--primary-light); }
+.table-wrap { max-height: 500px; overflow: auto; border-radius: var(--radius); border: 1px solid var(--gray-200); }
+
+.weight-bar-container { display: flex; flex-direction: column; gap: 8px; }
+.weight-row { display: flex; align-items: center; gap: 12px; }
+.weight-row .name { min-width: 120px; font-size: 13px; font-weight: 600; text-align: right; }
+.weight-row .bar-wrap { flex: 1; height: 24px; background: var(--gray-100); border-radius: 12px; overflow: hidden; }
+.weight-row .bar { height: 100%; background: var(--primary); border-radius: 12px; transition: width 0.3s; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
+.weight-row .bar span { color: white; font-size: 11px; font-weight: 700; }
+
+.slider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.slider-item label { font-size: 12px; }
+.slider-item input[type="range"] { width: 100%; }
+.slider-item .val { font-size: 11px; color: var(--primary); font-weight: 700; text-align: right; }
+
+.quadrant-label { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600; display: inline-block; }
+.q-premium { background: #F3E5F5; color: var(--purple); }
+.q-value { background: var(--success-light); color: var(--success); }
+.q-economy { background: var(--primary-light); color: var(--primary); }
+.q-overprice { background: var(--warning-light); color: var(--warning); }
+
+.category-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+}
+.badge-프리미엄 { background: #F3E5F5; color: #9C27B0; }
+.badge-가성비 { background: #E8F5E9; color: #43A047; }
+.badge-보급형 { background: #E3F2FD; color: #1E88E5; }
+.badge-과잉스펙 { background: #FFF3E0; color: #FB8C00; }
+
+.sim-result { margin-top: 16px; padding: 16px; background: var(--primary-light); border-radius: var(--radius); border-left: 4px solid var(--primary); }
+
+.strategy-zone { padding: 12px 16px; border-radius: var(--radius); margin-bottom: 8px; font-size: 13px; }
+.strategy-red { background: #FFEBEE; border-left: 4px solid var(--danger); }
+.strategy-green { background: #E8F5E9; border-left: 4px solid var(--success); }
+.strategy-blue { background: #E3F2FD; border-left: 4px solid var(--primary); }
+
+.progress-bar { width: 100%; height: 6px; background: var(--gray-200); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.progress-bar .fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.3s; }
+
+.hidden { display: none !important; }
+.fade-in { animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main-content { margin-left: 0; padding: 16px; }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .slider-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app-layout">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <h1>데스커 AI 에이전트</h1>
+      <p>시장조사 &amp; 분석 도구</p>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">시장 조사</div>
+      <a class="sidebar-item active" href="product_positioning_map.html">
+        <span class="icon">📐</span>제품 포지셔닝 맵
+      </a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">고객 분석</div>
+      <a class="sidebar-item" href="customer_profile_analyzer.html">
+        <span class="icon">👥</span>고객 프로파일 분석
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="header-bar">
+      <h2>📐 제품 포지셔닝 맵</h2>
+      <p>시장 제품 스펙 데이터를 업로드하면 가중 스펙 점수 기반 포지셔닝 맵을 생성합니다</p>
+    </div>
+
+    <!-- Step 1: Upload -->
+    <div class="card" id="card-upload">
+      <h2><span>1</span> 데이터 업로드</h2>
+      <div class="upload-area" id="upload-area">
+        <div class="icon">📊</div>
+        <p><strong>시장조사 엑셀 파일</strong>을 드래그하거나 클릭하여 업로드</p>
+        <p style="font-size:12px;color:var(--gray-500);margin-top:8px">(시장조사) 시트가 포함된 .xlsx 파일 또는 일반 스펙 엑셀</p>
+        <input type="file" id="file-input" accept=".xlsx,.xls">
+      </div>
+      <div id="upload-status" class="hidden" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- Step 2: Category Select (for transposed) -->
+    <div class="card hidden" id="card-category">
+      <h2><span>2</span> 카테고리 선택</h2>
+      <div class="controls-grid">
+        <div>
+          <label>분석할 카테고리</label>
+          <select id="sel-category"></select>
+        </div>
+      </div>
+      <div id="preview-table" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- Step 3: Column Mapping -->
+    <div class="card hidden" id="card-columns">
+      <h2><span>3</span> 컬럼 인식</h2>
+      <div class="controls-grid">
+        <div><label>제품명 컬럼</label><select id="sel-product"></select></div>
+        <div><label>가격 컬럼</label><select id="sel-price"></select></div>
+      </div>
+      <div style="margin-top:12px;">
+        <label>스펙 컬럼 (분석 대상)</label>
+        <div id="spec-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <!-- Step 4: Weights -->
+    <div class="card hidden" id="card-weights">
+      <h2><span>4</span> 스펙 가중치</h2>
+      <div style="margin-bottom:12px;">
+        <label style="display:inline;margin-right:16px;">
+          <input type="radio" name="weight-mode" value="auto" checked> 자동 (분산 기반)
+        </label>
+        <label style="display:inline;">
+          <input type="radio" name="weight-mode" value="manual"> 수동 조정
+        </label>
+      </div>
+      <div id="weight-auto"></div>
+      <div id="weight-manual" class="hidden"></div>
+      <button class="btn btn-primary" style="margin-top:16px;" onclick="runAnalysis()">분석 실행</button>
+    </div>
+
+    <!-- Step 5: Results -->
+    <div class="card hidden" id="card-results">
+      <h2><span>5</span> 분석 결과</h2>
+      <div class="metric-grid" id="metrics"></div>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('tab-map',this)">포지셔닝 맵</button>
+        <button class="tab-btn" onclick="switchTab('tab-table',this)">데이터 테이블</button>
+      </div>
+      <div class="tab-panel active" id="tab-map">
+        <div id="positioning-chart" style="width:100%;height:600px;"></div>
+        <div class="btn-group" style="margin-top:12px;">
+          <button class="btn btn-primary btn-sm" onclick="downloadPNG()">PNG 다운로드 (고해상도)</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadCSV()">CSV 다운로드</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="tab-table">
+        <div id="result-table"></div>
+      </div>
+    </div>
+
+    <!-- Step 6: Simulation -->
+    <div class="card hidden" id="card-sim">
+      <h2><span>6</span> 우리 제품 시뮬레이션</h2>
+      <p style="font-size:13px;color:var(--gray-700);margin-bottom:16px;">예상 스펙과 가격을 입력하면 맵 위에 표시됩니다.</p>
+      <div class="controls-grid" id="sim-fields"></div>
+      <button class="btn btn-primary" style="margin-top:12px;" onclick="runSimulation()">시뮬레이션 실행</button>
+      <div id="sim-result" class="hidden"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─── State ───
+let rawData = [];       // [{col: val, ...}]
+let parsedMarket = null;// {categories: [{name, products, spec_fields}]}
+let columns = [];
+let productCol = '';
+let priceCol = '';
+let specCols = [];
+let weights = {};
+let scored = [];
+let categories = {};
+let simProduct = null;
+
+// ─── Field Mapping (transposed excel) ───
+const FIELD_MAP = {
+  '이름':'name','제품명':'name','브랜드':'brand','가격':'price',
+  '가격 (+배송비)':'price','배송비':'shippingFee',
+  '실판매가 (가격+배송비)':'actualPrice','실판매가':'actualPrice',
+  '1개당 판매가':'actualPrice','판매처':'seller','소재':'material',
+  '원산지':'origin','URL':'url','url':'url'
+};
+const SKIP_ROWS = new Set(['이미지','리뷰','']);
+
+// ─── Upload ───
+const uploadArea = document.getElementById('upload-area');
+const fileInput = document.getElementById('file-input');
+uploadArea.onclick = () => fileInput.click();
+uploadArea.ondragover = e => { e.preventDefault(); uploadArea.classList.add('dragover'); };
+uploadArea.ondragleave = () => uploadArea.classList.remove('dragover');
+uploadArea.ondrop = e => { e.preventDefault(); uploadArea.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); };
+fileInput.onchange = e => { if(e.target.files[0]) handleFile(e.target.files[0]); };
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'array'});
+    const marketSheets = wb.SheetNames.filter(s => s.includes('(시장조사)'));
+
+    if (marketSheets.length > 0) {
+      // Transposed market research format
+      parsedMarket = parseMarketResearch(wb, marketSheets);
+      showCategorySelector(parsedMarket);
+    } else {
+      // Normal format (products = rows)
+      parsedMarket = null;
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rawData = XLSX.utils.sheet_to_json(ws, {defval:''});
+      columns = Object.keys(rawData[0] || {});
+      document.getElementById('card-category').classList.add('hidden');
+      setupColumnMapping();
+    }
+    document.getElementById('upload-status').innerHTML =
+      `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
+        ✓ <strong>${file.name}</strong> 파싱 완료 (${marketSheets.length > 0 ? marketSheets.length + '개 카테고리' : rawData.length + '개 제품'})
+      </div>`;
+    document.getElementById('upload-status').classList.remove('hidden');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─── Parse Transposed Market Research ───
+function parseMarketResearch(wb, sheetNames) {
+  const categories = [];
+  for (const sn of sheetNames) {
+    const ws = wb.Sheets[sn];
+    const data = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    if (!data || data.length < 3) continue;
+
+    // Find row labels (col 0) and name row
+    let nameRow = -1;
+    const labels = data.map((r,i) => {
+      const v = r[0]; return v ? String(v).trim() : '';
+    });
+    for (let i=0;i<labels.length;i++) {
+      if (labels[i]==='이름' || labels[i]==='제품명') { nameRow=i; break; }
+    }
+    if (nameRow < 0) continue;
+
+    const products = [];
+    const specFields = [];
+    const knownSpecs = new Set();
+
+    for (let c=1; c<(data[nameRow]||[]).length; c++) {
+      const pName = data[nameRow][c];
+      if (!pName || String(pName).trim()==='') continue;
+
+      const product = { name: String(pName).trim(), brand:'', price:0, specs:{}, isOur:false };
+
+      for (let r=0; r<data.length; r++) {
+        const lab = labels[r];
+        if (!lab || SKIP_ROWS.has(lab)) continue;
+        const val = data[r] ? data[r][c] : null;
+        if (val===null || val===undefined) continue;
+        const sval = String(val).trim();
+        if (!sval) continue;
+
+        const std = FIELD_MAP[lab];
+        if (std==='name') continue;
+        else if (std==='brand') {
+          product.brand = sval;
+          if (sval.includes('데스커') || sval.includes('퍼시스')) product.isOur = true;
+        }
+        else if (std==='price') { const n = tryNum(sval); if(n!==null) product.price=n; }
+        else if (std==='actualPrice') { const n = tryNum(sval); if(n!==null) product.actualPrice=n; }
+        else if (std==='shippingFee') product.shippingFee = sval;
+        else if (std==='seller' || std==='material' || std==='origin' || std==='url') product[std] = sval;
+        else if (!std && r !== nameRow) {
+          product.specs[lab] = sval;
+          if (!knownSpecs.has(lab)) { knownSpecs.add(lab); specFields.push(lab); }
+        }
+      }
+      if (!product.actualPrice && product.price > 0) {
+        const ship = tryNum(product.shippingFee);
+        product.actualPrice = (ship && ship > 0) ? product.price + ship : product.price;
+      }
+      products.push(product);
+    }
+
+    const catName = sn.replace('(시장조사)','').trim();
+    if (products.length > 0) categories.push({ name: catName, products, spec_fields: specFields });
+  }
+  return { categories };
+}
+
+function tryNum(val) {
+  if (val===null || val===undefined) return null;
+  if (typeof val === 'number') return isNaN(val) ? null : val;
+  const s = String(val).replace(/,/g,'').replace(/원|₩/g,'').trim();
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+// ─── Category Selector ───
+function showCategorySelector(parsed) {
+  const card = document.getElementById('card-category');
+  card.classList.remove('hidden');
+  card.classList.add('fade-in');
+  const sel = document.getElementById('sel-category');
+  sel.innerHTML = parsed.categories.map((c,i) =>
+    `<option value="${i}">${c.name} (${c.products.length}개 제품)</option>`
+  ).join('');
+  sel.onchange = () => selectCategory(parseInt(sel.value));
+  selectCategory(0);
+}
+
+function selectCategory(idx) {
+  const cat = parsedMarket.categories[idx];
+  // Convert to flat row format
+  rawData = cat.products.map(p => {
+    const row = { '제품명': p.name, '브랜드': p.brand, '가격': p.actualPrice || p.price };
+    for (const [k,v] of Object.entries(p.specs)) {
+      const n = tryNum(v);
+      row[k] = n !== null ? n : v;
+    }
+    return row;
+  });
+  columns = Object.keys(rawData[0] || {});
+
+  // Preview
+  const prev = document.getElementById('preview-table');
+  prev.innerHTML = buildTable(rawData.slice(0,5), columns);
+
+  setupColumnMapping();
+}
+
+// ─── Column Mapping ───
+function setupColumnMapping() {
+  const card = document.getElementById('card-columns');
+  card.classList.remove('hidden');
+  card.classList.add('fade-in');
+
+  const selP = document.getElementById('sel-product');
+  const selPr = document.getElementById('sel-price');
+  selP.innerHTML = columns.map(c => `<option value="${c}" ${c.match(/제품명?|상품명|name/i)?'selected':''}>${c}</option>`).join('');
+  selPr.innerHTML = columns.map(c => `<option value="${c}" ${c.match(/^가격$|price/i)?'selected':''}>${c}</option>`).join('');
+
+  const updateSpecs = () => {
+    const excluded = new Set([selP.value, selPr.value]);
+    const remaining = columns.filter(c => !excluded.has(c) && !c.match(/url|링크|이미지|image|비고|번호|^id$/i));
+    const box = document.getElementById('spec-checkboxes');
+    box.innerHTML = remaining.map(c =>
+      `<label style="font-size:13px;display:flex;align-items:center;gap:4px;background:var(--gray-100);padding:4px 10px;border-radius:16px;cursor:pointer;">
+        <input type="checkbox" class="spec-chk" value="${c}" checked> ${c}
+      </label>`
+    ).join('');
+    setupWeights();
+  };
+  selP.onchange = updateSpecs;
+  selPr.onchange = updateSpecs;
+  updateSpecs();
+}
+
+// ─── Weights ───
+function setupWeights() {
+  const card = document.getElementById('card-weights');
+  card.classList.remove('hidden');
+
+  productCol = document.getElementById('sel-product').value;
+  priceCol = document.getElementById('sel-price').value;
+  specCols = [...document.querySelectorAll('.spec-chk:checked')].map(cb => cb.value);
+
+  // Listen for checkbox changes
+  document.querySelectorAll('.spec-chk').forEach(cb => {
+    cb.onchange = () => setupWeights();
+  });
+
+  // Calculate variance weights
+  weights = calcVarianceWeights(rawData, specCols);
+  renderWeightBars(weights);
+  renderWeightSliders(specCols, weights);
+
+  // Mode toggle
+  document.querySelectorAll('[name="weight-mode"]').forEach(r => {
+    r.onchange = () => {
+      document.getElementById('weight-auto').classList.toggle('hidden', r.value !== 'auto' || !r.checked);
+      document.getElementById('weight-manual').classList.toggle('hidden', r.value !== 'manual' || !r.checked);
+    };
+  });
+}
+
+function calcVarianceWeights(data, cols) {
+  const cvs = {};
+  for (const col of cols) {
+    const vals = data.map(r => tryNum(r[col])).filter(v => v !== null);
+    if (vals.length < 2) { cvs[col] = 0; continue; }
+    const mean = vals.reduce((s,v)=>s+v,0) / vals.length;
+    const std = Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0) / (vals.length-1));
+    cvs[col] = Math.abs(mean) > 1e-10 ? std / Math.abs(mean) : std;
+  }
+  const total = Object.values(cvs).reduce((s,v)=>s+v,0);
+  const w = {};
+  for (const col of cols) w[col] = total > 0 ? cvs[col]/total : 1/cols.length;
+  return w;
+}
+
+function renderWeightBars(w) {
+  const sorted = Object.entries(w).sort((a,b) => b[1]-a[1]);
+  const maxW = Math.max(...Object.values(w), 0.01);
+  document.getElementById('weight-auto').innerHTML =
+    `<div class="weight-bar-container">${sorted.map(([n,v]) =>
+      `<div class="weight-row">
+        <div class="name">${n}</div>
+        <div class="bar-wrap"><div class="bar" style="width:${(v/maxW*100).toFixed(0)}%"><span>${(v*100).toFixed(1)}%</span></div></div>
+      </div>`
+    ).join('')}</div>`;
+}
+
+function renderWeightSliders(cols, defaults) {
+  document.getElementById('weight-manual').innerHTML =
+    `<div class="slider-grid">${cols.map(c =>
+      `<div class="slider-item">
+        <label>${c}</label>
+        <input type="range" min="0" max="100" value="${Math.round((defaults[c]||0.5)*100)}" class="weight-slider" data-col="${c}"
+          oninput="this.nextElementSibling.textContent=(this.value)+'%'">
+        <div class="val">${Math.round((defaults[c]||0.5)*100)}%</div>
+      </div>`
+    ).join('')}</div>`;
+}
+
+function getWeights() {
+  const mode = document.querySelector('[name="weight-mode"]:checked').value;
+  if (mode === 'auto') return weights;
+  const sliders = document.querySelectorAll('.weight-slider');
+  const raw = {};
+  sliders.forEach(s => { raw[s.dataset.col] = parseInt(s.value); });
+  const total = Object.values(raw).reduce((s,v)=>s+v,0) || 1;
+  const w = {};
+  for (const [k,v] of Object.entries(raw)) w[k] = v/total;
+  return w;
+}
+
+// ─── Analysis ───
+function runAnalysis() {
+  productCol = document.getElementById('sel-product').value;
+  priceCol = document.getElementById('sel-price').value;
+  specCols = [...document.querySelectorAll('.spec-chk:checked')].map(cb => cb.value);
+  const w = getWeights();
+
+  // Normalize & Score
+  scored = normalizeAndScore(rawData, productCol, priceCol, specCols, w);
+  categories = classifyProducts(scored, productCol, priceCol);
+
+  // Show results
+  const card = document.getElementById('card-results');
+  card.classList.remove('hidden');
+  card.classList.add('fade-in');
+
+  // Metrics
+  const prices = scored.map(r => r[priceCol]);
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric-card"><div class="value">${scored.length}개</div><div class="label">제품 수</div></div>
+    <div class="metric-card"><div class="value">${specCols.length}개</div><div class="label">스펙 항목</div></div>
+    <div class="metric-card"><div class="value">${(scored.reduce((s,r)=>s+r._score,0)/scored.length).toFixed(1)}</div><div class="label">평균 스펙 점수</div></div>
+    <div class="metric-card"><div class="value">${Math.min(...prices).toLocaleString()} ~ ${Math.max(...prices).toLocaleString()}</div><div class="label">가격 범위</div></div>`;
+
+  renderPositioningMap();
+  renderResultTable();
+  setupSimulation();
+
+  card.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function normalizeAndScore(data, pCol, prCol, sCols, w) {
+  // Min-max per column
+  const mins = {}, maxs = {};
+  for (const c of sCols) {
+    const vals = data.map(r => tryNum(r[c])).filter(v => v !== null);
+    mins[c] = vals.length ? Math.min(...vals) : 0;
+    maxs[c] = vals.length ? Math.max(...vals) : 1;
+  }
+
+  return data.map(row => {
+    const r = {...row};
+    let score = 0;
+    for (const c of sCols) {
+      const v = tryNum(r[c]);
+      let norm = 0.5;
+      if (v !== null) {
+        const range = maxs[c] - mins[c];
+        norm = range > 0 ? (v - mins[c]) / range : 0.5;
+      }
+      r['_norm_'+c] = norm;
+      score += norm * (w[c] || 0);
+    }
+    r._score = score * 100;
+    return r;
+  }).sort((a,b) => b._score - a._score);
+}
+
+function classifyProducts(data, pCol, prCol) {
+  const prices = data.map(r => r[prCol]).sort((a,b)=>a-b);
+  const scores = data.map(r => r._score).sort((a,b)=>a-b);
+  const medianPrice = prices[Math.floor(prices.length/2)];
+  const medianScore = scores[Math.floor(scores.length/2)];
+  const cats = {};
+  for (const r of data) {
+    const hp = r[prCol] >= medianPrice, hs = r._score >= medianScore;
+    cats[r[pCol]] = hp && hs ? '프리미엄' : !hp && hs ? '가성비' : !hp && !hs ? '보급형' : '과잉스펙';
+  }
+  cats._medianPrice = medianPrice;
+  cats._medianScore = medianScore;
+  return cats;
+}
+
+// ─── Positioning Map ───
+function renderPositioningMap() {
+  const catColors = { '프리미엄':'#9C27B0', '가성비':'#4CAF50', '보급형':'#2196F3', '과잉스펙':'#FF9800' };
+  const catSymbols = { '프리미엄':'diamond', '가성비':'triangle-up', '보급형':'circle', '과잉스펙':'square' };
+
+  const traces = [];
+  for (const [cat, color] of Object.entries(catColors)) {
+    const items = scored.filter(r => categories[r[productCol]] === cat);
+    if (!items.length) continue;
+    traces.push({
+      x: items.map(r => r[priceCol]),
+      y: items.map(r => r._score),
+      text: items.map(r => r[productCol]),
+      hovertext: items.map(r => {
+        let h = `<b>${r[productCol]}</b><br>가격: ${Number(r[priceCol]).toLocaleString()}<br>스펙 점수: ${r._score.toFixed(1)}`;
+        for (const c of specCols) h += `<br>${c}: ${r[c]}`;
+        return h;
+      }),
+      hoverinfo: 'text',
+      mode: 'markers+text',
+      type: 'scatter',
+      name: cat,
+      textposition: 'top center',
+      textfont: { size: 10 },
+      marker: { color, symbol: catSymbols[cat], size: 12, line: { width: 1, color: 'white' } }
+    });
+  }
+
+  // Our product
+  if (simProduct) {
+    traces.push({
+      x: [simProduct.price], y: [simProduct.score],
+      text: [simProduct.name],
+      hovertext: [`<b>${simProduct.name}</b><br>가격: ${simProduct.price.toLocaleString()}<br>스펙 점수: ${simProduct.score.toFixed(1)}<br>카테고리: ${simProduct.category}`],
+      hoverinfo: 'text',
+      mode: 'markers+text', type: 'scatter', name: '우리 제품',
+      textposition: 'top center',
+      textfont: { size: 12, color: '#E53935' },
+      marker: { color: '#E53935', symbol: 'star', size: 20, line: { width: 2, color: '#B71C1C' } }
+    });
+  }
+
+  const mp = categories._medianPrice || 0;
+  const ms = categories._medianScore || 50;
+
+  const layout = {
+    title: { text: '스펙 기반 제품 포지셔닝 맵', font: { family: 'Malgun Gothic', size: 16 } },
+    xaxis: { title: '가격', tickformat: ',', gridcolor: '#eee' },
+    yaxis: { title: '가중 스펙 점수 (0-100)', range: [-5, 105], gridcolor: '#eee' },
+    shapes: [
+      { type:'line', x0:mp, x1:mp, y0:-5, y1:105, line:{dash:'dash',color:'#bbb',width:1} },
+      { type:'line', x0:0, x1:1, y0:ms, y1:ms, xref:'paper', line:{dash:'dash',color:'#bbb',width:1} }
+    ],
+    annotations: [
+      { x:0.02, y:0.98, xref:'paper', yref:'paper', text:'가성비 우수', showarrow:false, font:{size:14,color:'rgba(76,175,80,0.2)'} },
+      { x:0.98, y:0.98, xref:'paper', yref:'paper', text:'프리미엄', showarrow:false, font:{size:14,color:'rgba(156,39,176,0.2)'}, xanchor:'right' },
+      { x:0.02, y:0.02, xref:'paper', yref:'paper', text:'보급형', showarrow:false, font:{size:14,color:'rgba(33,150,243,0.2)'} },
+      { x:0.98, y:0.02, xref:'paper', yref:'paper', text:'과잉 가격', showarrow:false, font:{size:14,color:'rgba(255,152,0,0.2)'}, xanchor:'right' }
+    ],
+    legend: { orientation:'h', y:1.12 },
+    template: 'plotly_white',
+    font: { family: 'Malgun Gothic, sans-serif' },
+    height: 600,
+    margin: { t:60, b:60, l:60, r:20 }
+  };
+
+  Plotly.newPlot('positioning-chart', traces, layout, { responsive:true });
+}
+
+// ─── Result Table ───
+function renderResultTable() {
+  const cols = [productCol, priceCol, ...specCols, '_score'];
+  const headers = cols.map(c => c === '_score' ? '스펙 점수' : c);
+  const rows = scored.map(r => {
+    const cat = categories[r[productCol]] || '';
+    return `<tr>${cols.map(c => {
+      if (c === '_score') return `<td><div style="display:flex;align-items:center;gap:8px;"><div class="progress-bar" style="width:80px"><div class="fill" style="width:${r._score}%"></div></div><span>${r._score.toFixed(1)}</span></div></td>`;
+      if (c === productCol) return `<td><strong>${r[c]}</strong> <span class="category-badge badge-${cat}">${cat}</span></td>`;
+      if (c === priceCol) return `<td>${Number(r[c]).toLocaleString()}</td>`;
+      return `<td>${r[c]??''}</td>`;
+    }).join('')}</tr>`;
+  });
+  document.getElementById('result-table').innerHTML =
+    `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+// ─── Simulation ───
+function setupSimulation() {
+  const card = document.getElementById('card-sim');
+  card.classList.remove('hidden');
+  card.classList.add('fade-in');
+  const fields = document.getElementById('sim-fields');
+  const medPrice = scored.map(r=>r[priceCol]).sort((a,b)=>a-b)[Math.floor(scored.length/2)] || 0;
+
+  let html = `<div><label>제품명</label><input type="text" id="sim-name" value="우리 제품"></div>`;
+  html += `<div><label>가격</label><input type="number" id="sim-price" value="${Math.round(medPrice)}" step="10000"></div>`;
+  for (const c of specCols) {
+    const vals = scored.map(r => tryNum(r[c])).filter(v => v !== null);
+    const med = vals.length ? vals.sort((a,b)=>a-b)[Math.floor(vals.length/2)] : 0;
+    html += `<div><label>${c}</label><input type="number" id="sim-${CSS.escape(c)}" value="${med}" step="any" class="sim-spec" data-col="${c}"></div>`;
+  }
+  fields.innerHTML = html;
+}
+
+function runSimulation() {
+  const name = document.getElementById('sim-name').value || '우리 제품';
+  const price = parseFloat(document.getElementById('sim-price').value) || 0;
+  const specs = {};
+  document.querySelectorAll('.sim-spec').forEach(inp => {
+    specs[inp.dataset.col] = parseFloat(inp.value) || 0;
+  });
+
+  const w = getWeights();
+  // Normalize using existing min/max
+  let score = 0;
+  for (const c of specCols) {
+    const vals = scored.map(r => tryNum(r[c])).filter(v => v !== null);
+    const mn = vals.length ? Math.min(...vals) : 0;
+    const mx = vals.length ? Math.max(...vals) : 1;
+    const range = mx - mn || 1;
+    let norm = ((specs[c] || 0) - mn) / range;
+    norm = Math.max(0, Math.min(1, norm));
+    score += norm * (w[c] || 0);
+  }
+  score *= 100;
+
+  const mp = categories._medianPrice, ms = categories._medianScore;
+  const hp = price >= mp, hs = score >= ms;
+  const cat = hp&&hs?'프리미엄':!hp&&hs?'가성비':!hp&&!hs?'보급형':'과잉스펙';
+
+  const allScores = [...scored.map(r=>r._score), score].sort((a,b)=>b-a);
+  const rank = allScores.indexOf(score) + 1;
+  const pct = ((1 - (rank-1)/allScores.length) * 100).toFixed(0);
+
+  simProduct = { name, price, score, category: cat, rank, pct };
+
+  document.getElementById('sim-result').classList.remove('hidden');
+  document.getElementById('sim-result').innerHTML = `
+    <div class="sim-result">
+      <div class="metric-grid" style="margin-bottom:12px;">
+        <div class="metric-card"><div class="value">${score.toFixed(1)}</div><div class="label">스펙 점수</div></div>
+        <div class="metric-card"><div class="value"><span class="category-badge badge-${cat}">${cat}</span></div><div class="label">포지셔닝</div></div>
+        <div class="metric-card"><div class="value">${rank}위 / ${allScores.length}개</div><div class="label">순위</div></div>
+        <div class="metric-card"><div class="value">${pct}%</div><div class="label">상위 백분위</div></div>
+      </div>
+      <p style="font-size:13px;"><strong>${name}</strong>은(는) 가격 ${price.toLocaleString()}원, 스펙 점수 ${score.toFixed(1)}점으로 <strong>${cat}</strong> 영역에 위치합니다. (상위 ${pct}%)</p>
+    </div>`;
+
+  renderPositioningMap(); // Redraw with our product
+}
+
+// ─── Download ───
+function downloadPNG() {
+  Plotly.downloadImage('positioning-chart', {
+    format: 'png', width: 1800, height: 1200, scale: 2, filename: 'positioning_map'
+  });
+}
+
+function downloadCSV() {
+  if (!scored.length) return;
+  const cols = [productCol, priceCol, ...specCols, '_score'];
+  const headers = cols.map(c => c==='_score'?'스펙점수':c);
+  let csv = '\uFEFF' + headers.join(',') + '\n';
+  for (const r of scored) {
+    csv += cols.map(c => {
+      let v = c==='_score' ? r._score.toFixed(1) : (r[c]??'');
+      if (String(v).includes(',')) v = `"${v}"`;
+      return v;
+    }).join(',') + '\n';
+  }
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cleaned_market_data.csv';
+  a.click();
+}
+
+// ─── Tabs ───
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ─── Table Builder ───
+function buildTable(data, cols) {
+  if (!data.length) return '<p style="color:var(--gray-500);font-size:13px;">데이터 없음</p>';
+  return `<div class="table-wrap"><table>
+    <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${data.map(r=>`<tr>${cols.map(c=>`<td>${r[c]??''}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div>`;
+}
+</script>
+</body>
+</html>

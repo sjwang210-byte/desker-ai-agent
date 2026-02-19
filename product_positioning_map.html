@@ -307,12 +307,15 @@ let simProduct = null;
 // ─── Field Mapping (transposed excel) ───
 const FIELD_MAP = {
   '이름':'name','제품명':'name','브랜드':'brand','가격':'price',
-  '가격 (+배송비)':'price','배송비':'shippingFee',
+  '가격 (+배송비)':'price','판매가':'price','판매가 (배송비포함)':'price',
+  '배송비':'shippingFee',
   '실판매가 (가격+배송비)':'actualPrice','실판매가':'actualPrice',
   '1개당 판매가':'actualPrice','판매처':'seller','소재':'material',
   '원산지':'origin','URL':'url','url':'url'
 };
 const SKIP_ROWS = new Set(['이미지','리뷰','']);
+// 전치형 감지용 키워드 (첫 열에 이들이 포함되면 전치형)
+const TRANSPOSED_KEYWORDS = ['이름','제품명','브랜드','가격','판매가','소재','원산지'];
 
 // ─── Upload ───
 const uploadArea = document.getElementById('upload-area');
@@ -327,12 +330,38 @@ function handleFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
     const wb = XLSX.read(e.target.result, {type:'array'});
-    const marketSheets = wb.SheetNames.filter(s => s.includes('(시장조사)'));
+
+    // 1차: 시트명에 (시장조사) 포함 여부 확인
+    let marketSheets = wb.SheetNames.filter(s => s.includes('(시장조사)'));
+
+    // 2차: 시트명에 (시장조사) 없어도, 첫 열에 전치형 키워드가 있으면 전치형으로 감지
+    if (marketSheets.length === 0) {
+      const transposedSheets = [];
+      for (const sn of wb.SheetNames) {
+        const ws = wb.Sheets[sn];
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+        if (!rows || rows.length < 3) continue;
+        // 첫 열(A열) 값들에서 전치형 키워드 매칭 수 확인
+        const col0 = rows.map(r => r && r[0] ? String(r[0]).trim() : '');
+        const matchCount = col0.filter(label =>
+          TRANSPOSED_KEYWORDS.some(kw => label.includes(kw)) || FIELD_MAP[label]
+        ).length;
+        // 3개 이상 키워드가 첫 열에 있으면 전치형으로 판단
+        if (matchCount >= 3) transposedSheets.push(sn);
+      }
+      if (transposedSheets.length > 0) marketSheets = transposedSheets;
+    }
 
     if (marketSheets.length > 0) {
       // Transposed market research format
       parsedMarket = parseMarketResearch(wb, marketSheets);
-      showCategorySelector(parsedMarket);
+      if (parsedMarket.categories.length > 1) {
+        showCategorySelector(parsedMarket);
+      } else if (parsedMarket.categories.length === 1) {
+        // 카테고리 1개면 바로 선택
+        document.getElementById('card-category').classList.add('hidden');
+        selectCategory(0);
+      }
     } else {
       // Normal format (products = rows)
       parsedMarket = null;
@@ -342,9 +371,14 @@ function handleFile(file) {
       document.getElementById('card-category').classList.add('hidden');
       setupColumnMapping();
     }
+
+    const catCount = parsedMarket ? parsedMarket.categories.length : 0;
+    const prodCount = parsedMarket
+      ? parsedMarket.categories.reduce((s,c) => s + c.products.length, 0)
+      : rawData.length;
     document.getElementById('upload-status').innerHTML =
       `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
-        ✓ <strong>${file.name}</strong> 파싱 완료 (${marketSheets.length > 0 ? marketSheets.length + '개 카테고리' : rawData.length + '개 제품'})
+        ✓ <strong>${file.name}</strong> 파싱 완료 (${catCount > 0 ? catCount + '개 카테고리, ' : ''}${prodCount}개 제품)
       </div>`;
     document.getElementById('upload-status').classList.remove('hidden');
   };
@@ -367,6 +401,14 @@ function parseMarketResearch(wb, sheetNames) {
     for (let i=0;i<labels.length;i++) {
       if (labels[i]==='이름' || labels[i]==='제품명') { nameRow=i; break; }
     }
+    // 폴백: '이름' 행이 없으면, 첫 행에 여러 셀 값이 있으면 그걸 이름 행으로 간주
+    if (nameRow < 0) {
+      for (let i=0; i<Math.min(3, data.length); i++) {
+        const row = data[i] || [];
+        const filled = row.slice(1).filter(v => v !== null && v !== undefined && String(v).trim() !== '').length;
+        if (filled >= 2) { nameRow = i; break; }
+      }
+    }
     if (nameRow < 0) continue;
 
     const products = [];
@@ -387,7 +429,13 @@ function parseMarketResearch(wb, sheetNames) {
         const sval = String(val).trim();
         if (!sval) continue;
 
-        const std = FIELD_MAP[lab];
+        // 정확한 매핑 + 부분 매칭 (판매가, 가격 등 포함 여부)
+        let std = FIELD_MAP[lab];
+        if (!std) {
+          const lo = lab.toLowerCase();
+          if (lo.includes('판매가') || lo.includes('가격')) std = 'price';
+          else if (lo.includes('배송비')) std = 'shippingFee';
+        }
         if (std==='name') continue;
         else if (std==='brand') {
           product.brand = sval;
@@ -418,7 +466,12 @@ function parseMarketResearch(wb, sheetNames) {
 function tryNum(val) {
   if (val===null || val===undefined) return null;
   if (typeof val === 'number') return isNaN(val) ? null : val;
-  const s = String(val).replace(/,/g,'').replace(/원|₩/g,'').trim();
+  let s = String(val).replace(/,/g,'').replace(/원|₩/g,'').trim();
+  // 범위값 처리: "72000-74000" → 평균값 사용
+  const rangeMatch = s.match(/^(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)$/);
+  if (rangeMatch) {
+    return (parseFloat(rangeMatch[1]) + parseFloat(rangeMatch[2])) / 2;
+  }
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
@@ -469,7 +522,7 @@ function setupColumnMapping() {
 
   const updateSpecs = () => {
     const excluded = new Set([selP.value, selPr.value]);
-    const remaining = columns.filter(c => !excluded.has(c) && !c.match(/url|링크|이미지|image|비고|번호|^id$/i));
+    const remaining = columns.filter(c => !excluded.has(c) && !c.match(/url|링크|이미지|image|비고|번호|^id$|^브랜드$|^brand$/i));
     const box = document.getElementById('spec-checkboxes');
     box.innerHTML = remaining.map(c =>
       `<label style="font-size:13px;display:flex;align-items:center;gap:4px;background:var(--gray-100);padding:4px 10px;border-radius:16px;cursor:pointer;">

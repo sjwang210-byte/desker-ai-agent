@@ -209,12 +209,45 @@ tbody tr:hover { background: var(--primary-light); }
     <!-- Step 1: Upload -->
     <div class="card" id="card-upload">
       <h2><span>1</span> 데이터 업로드</h2>
-      <div class="upload-area" id="upload-area">
-        <div class="icon">📊</div>
-        <p><strong>시장조사 엑셀 파일</strong>을 드래그하거나 클릭하여 업로드</p>
-        <p style="font-size:12px;color:var(--gray-500);margin-top:8px">(시장조사) 시트가 포함된 .xlsx 파일 또는 일반 스펙 엑셀</p>
-        <input type="file" id="file-input" accept=".xlsx,.xls">
+
+      <!-- 소스 탭 -->
+      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--gray-200);">
+        <button class="source-tab active" onclick="switchSource('file')" id="tab-file"
+          style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;">
+          📊 엑셀 파일 업로드
+        </button>
+        <button class="source-tab" onclick="switchSource('convex')" id="tab-convex"
+          style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--gray-500);border-bottom:2px solid transparent;margin-bottom:-2px;">
+          🗄️ 이전 시장조사 불러오기
+        </button>
       </div>
+
+      <!-- 엑셀 업로드 -->
+      <div id="source-file">
+        <div class="upload-area" id="upload-area">
+          <div class="icon">📊</div>
+          <p><strong>시장조사 엑셀 파일</strong>을 드래그하거나 클릭하여 업로드</p>
+          <p style="font-size:12px;color:var(--gray-500);margin-top:8px">전치형 시장조사 엑셀 또는 일반 스펙 엑셀 (.xlsx / .xls)</p>
+          <input type="file" id="file-input" accept=".xlsx,.xls">
+        </div>
+      </div>
+
+      <!-- Convex 불러오기 -->
+      <div id="source-convex" class="hidden">
+        <div style="display:flex;gap:8px;align-items:end;margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:12px;font-weight:600;color:var(--gray-700);display:block;margin-bottom:4px;">Convex URL</label>
+            <input type="text" id="convex-url" placeholder="https://your-project.convex.cloud"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:var(--radius);font-size:13px;">
+          </div>
+          <button onclick="loadConvexSessions()" style="padding:8px 16px;background:var(--primary);color:white;border:none;border-radius:var(--radius);cursor:pointer;font-size:13px;white-space:nowrap;">
+            세션 목록 조회
+          </button>
+        </div>
+        <div id="convex-sessions" class="hidden"></div>
+        <div id="convex-categories" class="hidden" style="margin-top:12px;"></div>
+      </div>
+
       <div id="upload-status" class="hidden" style="margin-top:16px;"></div>
     </div>
 
@@ -303,6 +336,118 @@ let weights = {};
 let scored = [];
 let categories = {};
 let simProduct = null;
+
+// ─── Source Tab Switch ───
+function switchSource(mode) {
+  document.getElementById('source-file').classList.toggle('hidden', mode !== 'file');
+  document.getElementById('source-convex').classList.toggle('hidden', mode !== 'convex');
+  const tabFile = document.getElementById('tab-file');
+  const tabConvex = document.getElementById('tab-convex');
+  if (mode === 'file') {
+    tabFile.style.color = 'var(--primary)'; tabFile.style.borderBottomColor = 'var(--primary)'; tabFile.style.fontWeight = '600';
+    tabConvex.style.color = 'var(--gray-500)'; tabConvex.style.borderBottomColor = 'transparent'; tabConvex.style.fontWeight = '500';
+  } else {
+    tabConvex.style.color = 'var(--primary)'; tabConvex.style.borderBottomColor = 'var(--primary)'; tabConvex.style.fontWeight = '600';
+    tabFile.style.color = 'var(--gray-500)'; tabFile.style.borderBottomColor = 'transparent'; tabFile.style.fontWeight = '500';
+  }
+}
+
+// ─── Convex API ───
+async function convexQuery(url, fn, args) {
+  const resp = await fetch(url.replace(/\/+$/,'') + '/api/query', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({path: fn, args, format:'json'})
+  });
+  const data = await resp.json();
+  if (data.status === 'error') throw new Error(data.errorMessage || 'Convex query error');
+  return data.value;
+}
+
+async function loadConvexSessions() {
+  const url = document.getElementById('convex-url').value.trim();
+  if (!url) { alert('Convex URL을 입력하세요.'); return; }
+  try {
+    const sessions = await convexQuery(url, 'marketResearch:listSessions', {});
+    const box = document.getElementById('convex-sessions');
+    if (!sessions || sessions.length === 0) {
+      box.innerHTML = '<div style="padding:12px;background:var(--warning-light);border-radius:var(--radius);font-size:13px;color:var(--warning);">저장된 시장조사 세션이 없습니다.</div>';
+      box.classList.remove('hidden');
+      return;
+    }
+    box.innerHTML = `
+      <label style="font-size:12px;font-weight:600;color:var(--gray-700);display:block;margin-bottom:4px;">세션 선택</label>
+      <select id="sel-convex-session" style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:var(--radius);font-size:13px;">
+        ${sessions.map(s => `<option value="${s._id}">${s.filename} — ${new Date(s.uploadedAt).toLocaleDateString('ko-KR')} (${s.totalProducts}개 제품, ${s.sheetCount}개 카테고리)</option>`).join('')}
+      </select>
+      <button onclick="loadConvexCategories()" style="margin-top:8px;padding:8px 16px;background:var(--success);color:white;border:none;border-radius:var(--radius);cursor:pointer;font-size:13px;">
+        카테고리 불러오기
+      </button>`;
+    box.classList.remove('hidden');
+  } catch(e) {
+    alert('Convex 연결 실패: ' + e.message);
+  }
+}
+
+async function loadConvexCategories() {
+  const url = document.getElementById('convex-url').value.trim();
+  const sessionId = document.getElementById('sel-convex-session').value;
+  try {
+    const cats = await convexQuery(url, 'marketResearch:getCategories', {sessionId});
+    const box = document.getElementById('convex-categories');
+    if (!cats || cats.length === 0) {
+      box.innerHTML = '<div style="padding:12px;background:var(--warning-light);border-radius:var(--radius);font-size:13px;">카테고리가 없습니다.</div>';
+      box.classList.remove('hidden');
+      return;
+    }
+    box.innerHTML = `
+      <label style="font-size:12px;font-weight:600;color:var(--gray-700);display:block;margin-bottom:4px;">카테고리 선택</label>
+      <select id="sel-convex-cat" style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:var(--radius);font-size:13px;">
+        ${cats.map(c => `<option value="${c._id}">${c.name} (스펙: ${c.specFields.join(', ')})</option>`).join('')}
+      </select>
+      <button onclick="loadConvexProducts()" style="margin-top:8px;padding:8px 16px;background:var(--primary);color:white;border:none;border-radius:var(--radius);cursor:pointer;font-size:13px;">
+        제품 데이터 불러오기
+      </button>`;
+    box.classList.remove('hidden');
+  } catch(e) {
+    alert('카테고리 조회 실패: ' + e.message);
+  }
+}
+
+async function loadConvexProducts() {
+  const url = document.getElementById('convex-url').value.trim();
+  const categoryId = document.getElementById('sel-convex-cat').value;
+  try {
+    const products = await convexQuery(url, 'marketResearch:getProductsByCategory', {categoryId});
+    if (!products || products.length === 0) {
+      alert('제품이 없습니다.'); return;
+    }
+    // Convex 데이터를 rawData 형식으로 변환
+    rawData = products.map(p => {
+      const row = { '제품명': p.name, '브랜드': p.brand, '가격': p.actualPrice || p.price };
+      if (p.specs && typeof p.specs === 'object') {
+        for (const [k,v] of Object.entries(p.specs)) {
+          const n = tryNum(v);
+          row[k] = n !== null ? n : v;
+        }
+      }
+      return row;
+    });
+    columns = Object.keys(rawData[0] || {});
+    parsedMarket = null;
+    document.getElementById('card-category').classList.add('hidden');
+    setupColumnMapping();
+
+    const catName = document.getElementById('sel-convex-cat').selectedOptions[0].textContent;
+    document.getElementById('upload-status').innerHTML =
+      `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
+        ✓ Convex에서 <strong>${catName}</strong> 불러오기 완료 (${products.length}개 제품)
+      </div>`;
+    document.getElementById('upload-status').classList.remove('hidden');
+  } catch(e) {
+    alert('제품 조회 실패: ' + e.message);
+  }
+}
 
 // ─── Field Mapping (transposed excel) ───
 const FIELD_MAP = {
@@ -567,7 +712,7 @@ function setupWeights() {
 function calcVarianceWeights(data, cols) {
   const cvs = {};
   for (const col of cols) {
-    const vals = data.map(r => tryNum(r[col])).filter(v => v !== null);
+    const vals = data.map(r => specToNum(r[col])).filter(v => v !== null);
     if (vals.length < 2) { cvs[col] = 0; continue; }
     const mean = vals.reduce((s,v)=>s+v,0) / vals.length;
     const std = Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0) / (vals.length-1));
@@ -646,24 +791,86 @@ function runAnalysis() {
   card.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
+// O/X, 유/무, Y/N 등 텍스트를 숫자로 변환
+function textToNum(val) {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim().toUpperCase();
+  // O/X 패턴
+  if (s === 'O' || s === '○' || s === '◯') return 1;
+  if (s === 'X' || s === '×' || s === '✕') return 0;
+  // 유/무 패턴
+  if (s === '유' || s === '있음' || s === 'YES' || s === 'Y') return 1;
+  if (s === '무' || s === '없음' || s === 'NO' || s === 'N') return 0;
+  return null;
+}
+
+// 단계 표현을 숫자로 변환: "5단계" → 5, "3단계/2000LUX" → 3
+function stageToNum(val) {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim();
+  const m = s.match(/(\d+)\s*단계/);
+  return m ? parseInt(m[1]) : null;
+}
+
+// 스펙 값을 숫자로 변환 (tryNum → textToNum → stageToNum 순서로 시도)
+function specToNum(val) {
+  let n = tryNum(val);
+  if (n !== null) return n;
+  n = textToNum(val);
+  if (n !== null) return n;
+  n = stageToNum(val);
+  if (n !== null) return n;
+  return null;
+}
+
 function normalizeAndScore(data, pCol, prCol, sCols, w) {
-  // Min-max per column
+  // 컬럼별 타입 감지 및 숫자 변환
+  const colType = {};  // 'numeric' | 'ordinal'
+  const ordinalMaps = {};
+  const numericVals = {};
+
+  for (const c of sCols) {
+    const converted = data.map(r => specToNum(r[c]));
+    const numCount = converted.filter(v => v !== null).length;
+
+    if (numCount >= data.length * 0.5) {
+      // 50% 이상 숫자 변환 가능 → 숫자형
+      colType[c] = 'numeric';
+      numericVals[c] = converted;
+    } else {
+      // 텍스트 ordinal 인코딩
+      colType[c] = 'ordinal';
+      const unique = [...new Set(data.map(r => String(r[c] ?? '').trim()))].filter(v => v).sort();
+      const map = {};
+      unique.forEach((v, i) => { map[v] = unique.length > 1 ? i / (unique.length - 1) : 0.5; });
+      ordinalMaps[c] = map;
+    }
+  }
+
+  // Min-max per numeric column
   const mins = {}, maxs = {};
   for (const c of sCols) {
-    const vals = data.map(r => tryNum(r[c])).filter(v => v !== null);
+    if (colType[c] !== 'numeric') continue;
+    const vals = numericVals[c].filter(v => v !== null);
     mins[c] = vals.length ? Math.min(...vals) : 0;
     maxs[c] = vals.length ? Math.max(...vals) : 1;
   }
 
-  return data.map(row => {
+  return data.map((row, idx) => {
     const r = {...row};
     let score = 0;
     for (const c of sCols) {
-      const v = tryNum(r[c]);
       let norm = 0.5;
-      if (v !== null) {
-        const range = maxs[c] - mins[c];
-        norm = range > 0 ? (v - mins[c]) / range : 0.5;
+      if (colType[c] === 'numeric') {
+        const v = numericVals[c][idx];
+        if (v !== null) {
+          const range = maxs[c] - mins[c];
+          norm = range > 0 ? (v - mins[c]) / range : 0.5;
+        }
+      } else {
+        // ordinal
+        const key = String(r[c] ?? '').trim();
+        norm = ordinalMaps[c][key] ?? 0.5;
       }
       r['_norm_'+c] = norm;
       score += norm * (w[c] || 0);
@@ -785,9 +992,18 @@ function setupSimulation() {
   let html = `<div><label>제품명</label><input type="text" id="sim-name" value="우리 제품"></div>`;
   html += `<div><label>가격</label><input type="number" id="sim-price" value="${Math.round(medPrice)}" step="10000"></div>`;
   for (const c of specCols) {
-    const vals = scored.map(r => tryNum(r[c])).filter(v => v !== null);
-    const med = vals.length ? vals.sort((a,b)=>a-b)[Math.floor(vals.length/2)] : 0;
-    html += `<div><label>${c}</label><input type="number" id="sim-${CSS.escape(c)}" value="${med}" step="any" class="sim-spec" data-col="${c}"></div>`;
+    const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
+    // O/X 컬럼인지 판별
+    const origVals = rawData.map(r => String(r[c] ?? '').trim().toUpperCase());
+    const isOX = origVals.some(v => v === 'O' || v === 'X' || v === '○' || v === '×');
+    if (isOX) {
+      html += `<div><label>${c}</label><select id="sim-${CSS.escape(c)}" class="sim-spec" data-col="${c}" data-type="ox">
+        <option value="O">O (유)</option><option value="X">X (무)</option>
+      </select></div>`;
+    } else {
+      const med = vals.length ? vals.sort((a,b)=>a-b)[Math.floor(vals.length/2)] : 0;
+      html += `<div><label>${c}</label><input type="text" id="sim-${CSS.escape(c)}" value="${med}" class="sim-spec" data-col="${c}" data-type="num"></div>`;
+    }
   }
   fields.innerHTML = html;
 }
@@ -797,18 +1013,18 @@ function runSimulation() {
   const price = parseFloat(document.getElementById('sim-price').value) || 0;
   const specs = {};
   document.querySelectorAll('.sim-spec').forEach(inp => {
-    specs[inp.dataset.col] = parseFloat(inp.value) || 0;
+    specs[inp.dataset.col] = specToNum(inp.value);
   });
 
   const w = getWeights();
   // Normalize using existing min/max
   let score = 0;
   for (const c of specCols) {
-    const vals = scored.map(r => tryNum(r[c])).filter(v => v !== null);
+    const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
     const mn = vals.length ? Math.min(...vals) : 0;
     const mx = vals.length ? Math.max(...vals) : 1;
     const range = mx - mn || 1;
-    let norm = ((specs[c] || 0) - mn) / range;
+    let norm = ((specs[c] ?? 0) - mn) / range;
     norm = Math.max(0, Math.min(1, norm));
     score += norm * (w[c] || 0);
   }

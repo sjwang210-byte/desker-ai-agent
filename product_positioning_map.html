@@ -337,6 +337,27 @@ tbody tr:hover { background: var(--primary-light); }
       </div>
       <div class="tab-panel active" id="tab-map">
         <div id="positioning-chart" style="width:100%;height:600px;"></div>
+
+        <!-- 사분면 설명 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;">
+          <div style="padding:10px 14px;border-radius:var(--radius);background:#F3E5F5;border-left:4px solid #9C27B0;">
+            <div style="font-size:13px;font-weight:700;color:#7B1FA2;">◆ 프리미엄</div>
+            <div style="font-size:12px;color:#6A1B9A;margin-top:2px;">높은 가격 + 높은 스펙<br>차별화된 고급 제품 영역</div>
+          </div>
+          <div style="padding:10px 14px;border-radius:var(--radius);background:#E8F5E9;border-left:4px solid #4CAF50;">
+            <div style="font-size:13px;font-weight:700;color:#2E7D32;">▲ 가성비</div>
+            <div style="font-size:12px;color:#1B5E20;margin-top:2px;">낮은 가격 + 높은 스펙<br>소비자에게 가장 매력적인 영역</div>
+          </div>
+          <div style="padding:10px 14px;border-radius:var(--radius);background:#FFF3E0;border-left:4px solid #FF9800;">
+            <div style="font-size:13px;font-weight:700;color:#E65100;">■ 과잉스펙</div>
+            <div style="font-size:12px;color:#BF360C;margin-top:2px;">높은 가격 + 낮은 스펙<br>가격 대비 스펙 경쟁력 부족</div>
+          </div>
+          <div style="padding:10px 14px;border-radius:var(--radius);background:#E3F2FD;border-left:4px solid #2196F3;">
+            <div style="font-size:13px;font-weight:700;color:#1565C0;">● 보급형</div>
+            <div style="font-size:12px;color:#0D47A1;margin-top:2px;">낮은 가격 + 낮은 스펙<br>가격 민감 시장의 기본 라인업</div>
+          </div>
+        </div>
+
         <div class="btn-group" style="margin-top:12px;">
           <button class="btn btn-primary btn-sm" onclick="downloadPNG()">PNG 다운로드 (고해상도)</button>
           <button class="btn btn-secondary btn-sm" onclick="downloadCSV()">CSV 다운로드</button>
@@ -371,6 +392,7 @@ let weights = {};
 let scored = [];
 let categories = {};
 let simProduct = null;
+let columnTypeOverrides = {};  // {colName: 'numeric'|'ox'|'text'} 사용자 수동 지정
 
 // ─── Source Tab Switch ───
 function switchSource(mode) {
@@ -470,6 +492,7 @@ async function loadConvexProducts() {
     });
     columns = Object.keys(rawData[0] || {});
     parsedMarket = null;
+    columnTypeOverrides = {};
     document.getElementById('card-category').classList.add('hidden');
     setupColumnMapping();
 
@@ -548,6 +571,7 @@ function handleFile(file) {
       const ws = wb.Sheets[wb.SheetNames[0]];
       rawData = XLSX.utils.sheet_to_json(ws, {defval:''});
       columns = Object.keys(rawData[0] || {});
+      columnTypeOverrides = {};
       document.getElementById('card-category').classList.add('hidden');
       setupColumnMapping();
     }
@@ -707,11 +731,18 @@ function selectCategory(idx) {
     return row;
   });
   columns = Object.keys(rawData[0] || {});
+  columnTypeOverrides = {};
   setupColumnMapping();
 }
 
 // ─── 컬럼 타입 분석 (O/X, 숫자, 텍스트) ───
 function analyzeColumnType(col) {
+  // 사용자 수동 지정이 있으면 우선 적용
+  if (columnTypeOverrides[col]) {
+    const t = columnTypeOverrides[col];
+    const labelMap = { numeric: '숫자', ox: '유/무', text: '텍스트' };
+    return { type: t, label: labelMap[t] || t, overridden: true };
+  }
   const vals = rawData.map(r => String(r[col] ?? '').trim()).filter(v => v);
   if (vals.length === 0) return { type: 'empty', label: '빈값' };
   const upper = vals.map(v => v.toUpperCase());
@@ -737,13 +768,17 @@ function setupColumnMapping() {
   selP.innerHTML = columns.map(c => `<option value="${c}" ${c===autoProduct?'selected':''}>${c}</option>`).join('');
   selPr.innerHTML = columns.map(c => `<option value="${c}" ${c===autoPrice?'selected':''}>${c}</option>`).join('');
 
-  const updateAll = () => {
+  const getFilteredCols = () => {
     const excluded = new Set([selP.value, selPr.value]);
     const skipPattern = /url|링크|이미지|image|비고|번호|^id$|^브랜드$|^brand$/i;
-    const remaining = columns.filter(c => !excluded.has(c) && !skipPattern.test(c));
-    const skipped = columns.filter(c => !excluded.has(c) && skipPattern.test(c));
+    return {
+      remaining: columns.filter(c => !excluded.has(c) && !skipPattern.test(c)),
+      skipped: columns.filter(c => !excluded.has(c) && skipPattern.test(c)),
+    };
+  };
 
-    // 컬럼 역할 태그 렌더
+  const updateColumnRoleTags = () => {
+    const { remaining, skipped } = getFilteredCols();
     const rolesBox = document.getElementById('column-roles');
     let tagsHtml = '<div style="display:flex;flex-wrap:wrap;gap:0;">';
     tagsHtml += `<span class="col-tag col-tag-name">📋 ${selP.value} <span class="tag-label">(제품명)</span></span>`;
@@ -759,6 +794,13 @@ function setupColumnMapping() {
     }
     tagsHtml += '</div>';
     rolesBox.innerHTML = tagsHtml;
+  };
+
+  const updateAll = () => {
+    const { remaining } = getFilteredCols();
+
+    // 컬럼 역할 태그 렌더
+    updateColumnRoleTags();
 
     // 데이터 미리보기 테이블
     const showCols = [selP.value, selPr.value, ...remaining];
@@ -785,15 +827,22 @@ function setupColumnMapping() {
     tableHtml += '</tbody></table></div>';
     document.getElementById('full-preview-table').innerHTML = tableHtml;
 
-    // 스펙 체크박스
+    // 스펙 체크박스 + 타입 선택
     const box = document.getElementById('spec-checkboxes');
     box.innerHTML = remaining.map(c => {
       const info = analyzeColumnType(c);
       const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
-      return `<label style="font-size:13px;display:flex;align-items:center;gap:4px;background:var(--gray-100);padding:4px 10px;border-radius:16px;cursor:pointer;">
-        <input type="checkbox" class="spec-chk" value="${c}" checked> ${icon} ${c}
-        <span style="font-size:10px;color:var(--gray-500);">(${info.label})</span>
-      </label>`;
+      const bgColor = info.type === 'ox' ? '#F3E5F5' : info.type === 'numeric' ? '#FFF3E0' : 'var(--gray-100)';
+      return `<div class="spec-item" style="display:flex;align-items:center;gap:4px;background:${bgColor};padding:4px 8px 4px 10px;border-radius:16px;font-size:13px;">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;flex:1;">
+          <input type="checkbox" class="spec-chk" value="${c}" checked> ${icon} ${c}
+        </label>
+        <select class="type-sel" data-col="${c}" style="font-size:10px;padding:1px 2px;border:1px solid var(--gray-300);border-radius:4px;background:white;color:var(--gray-700);cursor:pointer;">
+          <option value="numeric" ${info.type==='numeric'?'selected':''}>📊 숫자</option>
+          <option value="ox" ${info.type==='ox'?'selected':''}>⚡ 유/무</option>
+          <option value="text" ${info.type==='text'?'selected':''}>📝 텍스트</option>
+        </select>
+      </div>`;
     }).join('');
 
     setupWeights();
@@ -801,9 +850,31 @@ function setupColumnMapping() {
 
   selP.onchange = updateAll;
   selPr.onchange = updateAll;
-  // 체크박스 변경 시에도 가중치 업데이트
+  // 체크박스 / 타입 선택 변경 시 처리 (이벤트 위임)
   document.getElementById('spec-checkboxes').addEventListener('change', e => {
-    if (e.target.classList.contains('spec-chk')) setupWeights();
+    if (e.target.classList.contains('spec-chk')) {
+      setupWeights();
+    } else if (e.target.classList.contains('type-sel')) {
+      const col = e.target.dataset.col;
+      columnTypeOverrides[col] = e.target.value;
+      // 아이콘, 배경색 업데이트
+      const item = e.target.closest('.spec-item');
+      if (item) {
+        const info = analyzeColumnType(col);
+        const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
+        const bgColor = info.type === 'ox' ? '#F3E5F5' : info.type === 'numeric' ? '#FFF3E0' : 'var(--gray-100)';
+        item.style.background = bgColor;
+        const label = item.querySelector('label');
+        const chk = label.querySelector('input');
+        label.innerHTML = '';
+        label.appendChild(chk);
+        label.append(` ${icon} ${col}`);
+      }
+      // 컬럼 역할 태그 업데이트
+      updateColumnRoleTags();
+      // 가중치 재계산
+      setupWeights();
+    }
   });
 
   updateAll();
@@ -840,7 +911,17 @@ function setupWeights() {
 function calcVarianceWeights(data, cols) {
   const cvs = {};
   for (const col of cols) {
-    const vals = data.map(r => specToNum(r[col])).filter(v => v !== null);
+    const info = analyzeColumnType(col);
+    let vals;
+    if (info.type === 'text') {
+      // 텍스트는 ordinal 인코딩 후 분산 계산
+      const unique = [...new Set(data.map(r => String(r[col] ?? '').trim()))].filter(v => v).sort();
+      const map = {};
+      unique.forEach((v, i) => { map[v] = unique.length > 1 ? i / (unique.length - 1) : 0.5; });
+      vals = data.map(r => map[String(r[col] ?? '').trim()] ?? null).filter(v => v !== null);
+    } else {
+      vals = data.map(r => specToNum(r[col])).filter(v => v !== null);
+    }
     if (vals.length < 2) { cvs[col] = 0; continue; }
     const mean = vals.reduce((s,v)=>s+v,0) / vals.length;
     const std = Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0) / (vals.length-1));
@@ -978,19 +1059,18 @@ function specToNum(val) {
 }
 
 function normalizeAndScore(data, pCol, prCol, sCols, w) {
-  // 컬럼별 타입 감지 및 숫자 변환
+  // 컬럼별 타입: analyzeColumnType() 결과 (사용자 오버라이드 포함) 사용
   const colType = {};  // 'numeric' | 'ordinal'
   const ordinalMaps = {};
   const numericVals = {};
 
   for (const c of sCols) {
-    const converted = data.map(r => specToNum(r[c]));
-    const numCount = converted.filter(v => v !== null).length;
+    const info = analyzeColumnType(c);
 
-    if (numCount >= data.length * 0.5) {
-      // 50% 이상 숫자 변환 가능 → 숫자형
+    if (info.type === 'numeric' || info.type === 'ox') {
+      // 숫자 또는 유/무 → 숫자 변환
       colType[c] = 'numeric';
-      numericVals[c] = converted;
+      numericVals[c] = data.map(r => specToNum(r[c]));
     } else {
       // 텍스트 ordinal 인코딩
       colType[c] = 'ordinal';
@@ -1146,17 +1226,20 @@ function setupSimulation() {
   let html = `<div><label>제품명</label><input type="text" id="sim-name" value="우리 제품"></div>`;
   html += `<div><label>가격</label><input type="number" id="sim-price" value="${Math.round(medPrice)}" step="10000"></div>`;
   for (const c of specCols) {
-    const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
-    // O/X 컬럼인지 판별
-    const origVals = rawData.map(r => String(r[c] ?? '').trim().toUpperCase());
-    const isOX = origVals.some(v => v === 'O' || v === 'X' || v === '○' || v === '×');
-    if (isOX) {
-      html += `<div><label>${c}</label><select id="sim-${CSS.escape(c)}" class="sim-spec" data-col="${c}" data-type="ox">
+    const info = analyzeColumnType(c);
+    if (info.type === 'ox') {
+      html += `<div><label>${c} <span style="font-size:10px;color:#9C27B0;">(유/무)</span></label><select id="sim-${CSS.escape(c)}" class="sim-spec" data-col="${c}" data-type="ox">
         <option value="O">O (유)</option><option value="X">X (무)</option>
       </select></div>`;
+    } else if (info.type === 'text') {
+      const unique = [...new Set(rawData.map(r => String(r[c] ?? '').trim()))].filter(v => v).sort();
+      html += `<div><label>${c} <span style="font-size:10px;color:var(--gray-500);">(텍스트)</span></label><select id="sim-${CSS.escape(c)}" class="sim-spec" data-col="${c}" data-type="text">
+        ${unique.map(v => `<option value="${v}">${v}</option>`).join('')}
+      </select></div>`;
     } else {
+      const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
       const med = vals.length ? vals.sort((a,b)=>a-b)[Math.floor(vals.length/2)] : 0;
-      html += `<div><label>${c}</label><input type="text" id="sim-${CSS.escape(c)}" value="${med}" class="sim-spec" data-col="${c}" data-type="num"></div>`;
+      html += `<div><label>${c} <span style="font-size:10px;color:var(--warning);">(숫자)</span></label><input type="text" id="sim-${CSS.escape(c)}" value="${med}" class="sim-spec" data-col="${c}" data-type="num"></div>`;
     }
   }
   fields.innerHTML = html;
@@ -1167,19 +1250,33 @@ function runSimulation() {
   const price = parseFloat(document.getElementById('sim-price').value) || 0;
   const specs = {};
   document.querySelectorAll('.sim-spec').forEach(inp => {
-    specs[inp.dataset.col] = specToNum(inp.value);
+    const info = analyzeColumnType(inp.dataset.col);
+    if (info.type === 'text') {
+      specs[inp.dataset.col] = inp.value;  // 텍스트는 원본 유지
+    } else {
+      specs[inp.dataset.col] = specToNum(inp.value);
+    }
   });
 
   const w = getWeights();
   // Normalize using existing min/max
   let score = 0;
   for (const c of specCols) {
-    const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
-    const mn = vals.length ? Math.min(...vals) : 0;
-    const mx = vals.length ? Math.max(...vals) : 1;
-    const range = mx - mn || 1;
-    let norm = ((specs[c] ?? 0) - mn) / range;
-    norm = Math.max(0, Math.min(1, norm));
+    const info = analyzeColumnType(c);
+    let norm = 0.5;
+    if (info.type === 'text') {
+      // ordinal 인코딩
+      const unique = [...new Set(rawData.map(r => String(r[c] ?? '').trim()))].filter(v => v).sort();
+      const idx = unique.indexOf(String(specs[c] ?? ''));
+      norm = unique.length > 1 && idx >= 0 ? idx / (unique.length - 1) : 0.5;
+    } else {
+      const vals = rawData.map(r => specToNum(r[c])).filter(v => v !== null);
+      const mn = vals.length ? Math.min(...vals) : 0;
+      const mx = vals.length ? Math.max(...vals) : 1;
+      const range = mx - mn || 1;
+      norm = ((specs[c] ?? 0) - mn) / range;
+      norm = Math.max(0, Math.min(1, norm));
+    }
     score += norm * (w[c] || 0);
   }
   score *= 100;

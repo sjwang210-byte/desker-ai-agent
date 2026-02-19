@@ -395,6 +395,27 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 .kw-row.active { background:rgba(0,0,0,0.07); }
 .kw-drilldown { margin-top:20px; border-top:1px solid var(--gray-200); padding-top:16px; }
 .kw-drilldown-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+
+/* Expandable table rows (중분류 → 소분류 드릴다운) */
+.expandable-row { cursor: pointer; }
+.expandable-row:hover { background: #E3F2FD !important; }
+.expand-icon { display:inline-block; width:18px; font-size:11px; color:var(--primary); text-align:center; }
+.child-row { background: #F5F8FF !important; }
+.child-row td:first-child { padding-left:32px !important; font-weight:400 !important; color:var(--gray-700); }
+.child-row:hover { background: #E8EEFF !important; }
+.child-row:nth-child(even) { background: #F0F4FF !important; }
+.child-row:nth-child(even):hover { background: #E8EEFF !important; }
+
+/* Product name tooltip */
+.product-tooltip {
+  position:fixed; z-index:200; max-width:380px; padding:12px 16px;
+  background:#333; color:#fff; border-radius:8px; font-size:12px; line-height:1.7;
+  box-shadow:0 4px 16px rgba(0,0,0,0.35); pointer-events:none; display:none;
+}
+.product-tooltip .tt-title { font-weight:600; color:#90CAF9; margin-bottom:6px; font-size:13px; }
+.product-tooltip .tt-list { max-height:180px; overflow-y:auto; }
+.product-tooltip .tt-item { padding:1px 0; border-bottom:1px solid rgba(255,255,255,0.1); }
+.product-tooltip .tt-item:last-child { border-bottom:none; }
 </style>
 </head>
 <body>
@@ -485,9 +506,9 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
       <div class="control-group">
         <label>집계 수준</label>
         <select id="selLevel" onchange="runAnalysis()">
-          <option value="상품카테고리(대)">대분류</option>
           <option value="상품카테고리(중)" selected>중분류</option>
           <option value="상품카테고리(소)">소분류</option>
+          <option value="상품">상품</option>
         </select>
       </div>
       <div class="control-group">
@@ -558,6 +579,26 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 <div class="page hidden" id="page-p-product">
   <div class="header-bar"><h2>구매 고객 특성 분석 — 상품별 상세</h2></div>
   <div class="card">
+    <div class="controls-grid" style="margin-bottom:16px;">
+      <div class="control-group">
+        <label>분석 차원</label>
+        <select id="prodDimension" onchange="renderProductDetailView()"></select>
+      </div>
+      <div class="control-group">
+        <label>지표</label>
+        <div class="radio-group" id="prodMetricGroup">
+          <label class="active" onclick="selectProductMetric(this, '결제금액')"><span>결제금액</span></label>
+          <label onclick="selectProductMetric(this, '결제수')"><span>결제수</span></label>
+          <label onclick="selectProductMetric(this, '결제상품수량')"><span>결제상품수량</span></label>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>옵션</label>
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="prodExcludeUnknown" checked onchange="renderProductDetailView()"> (알수없음) 제외</label>
+        </div>
+      </div>
+    </div>
     <div class="control-group" style="max-width:500px; margin-bottom:16px;">
       <label>상품명 검색</label>
       <input type="text" id="searchInput" placeholder="상품명 또는 카테고리 검색..." oninput="filterAndRender()"
@@ -722,6 +763,9 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
   <img id="imgModalSrc" src="" alt="">
 </div>
 
+<!-- Product Tooltip -->
+<div class="product-tooltip" id="productTooltip"></div>
+
 </div><!-- /app-layout -->
 
 <script>
@@ -760,6 +804,10 @@ let currentChartType = 'bar-h';
 let mainChartInstance = null;
 let searchTerm = '';
 let availableMonths = [];  // Convex에서 로드된 기간 목록
+let expandedRows = new Set();     // 펼쳐진 중분류 카테고리명
+let childDataCache = {};          // { 중분류명: [소분류 행 배열] }
+let categoryProductMap = {};      // { 소분류명: ['상품명1', ...] }
+let productMetric = '결제금액';   // 상품별 상세 페이지 지표
 
 // ───────────────────────────────────────
 // File Upload
@@ -970,6 +1018,11 @@ function runAnalysis() {
 
   if (!profileData[dimension]) return;
 
+  // Reset expand state on analysis change
+  expandedRows = new Set();
+  childDataCache = {};
+  buildCategoryProductMap();
+
   const df = profileData[dimension].df;
   const result = computePercentageDistribution(df, level, currentMetric, excludeUnknown);
 
@@ -979,6 +1032,7 @@ function runAnalysis() {
   currentResult = { dimension, level, metric: currentMetric, excludeUnknown, data: result, attrValues };
 
   document.getElementById('resultsCard').classList.remove('hidden');
+  document.getElementById('noDataCard').classList.add('hidden');
   renderMetrics();
   renderCurrentTab();
 }
@@ -1085,6 +1139,23 @@ function renderTable() {
   const { attrValues, level } = currentResult;
   const data = getFilteredData();
   const showAbs = document.getElementById('chkShowAbsolute').checked;
+  const isExpandable = (level === '상품카테고리(중)');
+  const isCatSmall = (level === '상품카테고리(소)');
+
+  // Helper: render percentage cells for a row
+  function renderPctCells(row) {
+    let cells = '';
+    let maxPct = -1, maxAttr = '';
+    for (const a of attrValues) { const p = row[a] || 0; if (p > maxPct) { maxPct = p; maxAttr = a; } }
+    for (const a of attrValues) {
+      const pct = row[a] || 0, abs = row[`${a}_abs`] || 0;
+      const isMax = a === maxAttr && maxPct > 0 ? ' class="max-val"' : '';
+      const display = showAbs ? `${pct.toFixed(1)}% (${abs.toLocaleString()})` : `${pct.toFixed(1)}%`;
+      cells += `<td${isMax}>${display}</td>`;
+    }
+    cells += `<td style="font-weight:600;">${(row['합계'] || 0).toLocaleString()}</td>`;
+    return cells;
+  }
 
   const totalCount = currentResult.data.length;
   const filteredCount = data.length;
@@ -1095,28 +1166,124 @@ function renderTable() {
   html += '<th>합계</th></tr></thead><tbody>';
 
   for (const row of data) {
-    // Find max percentage value in this row
-    let maxPct = -1;
-    let maxAttr = '';
-    for (const a of attrValues) {
-      const pct = row[a] || 0;
-      if (pct > maxPct) { maxPct = pct; maxAttr = a; }
-    }
+    const safeCat = row.category.replace(/'/g, "\\'");
+    const isExpanded = expandedRows.has(row.category);
 
-    html += `<tr><td>${row.category}</td>`;
-    for (const a of attrValues) {
-      const pct = row[a] || 0;
-      const abs = row[`${a}_abs`] || 0;
-      const isMax = a === maxAttr && maxPct > 0 ? ' class="max-val"' : '';
-      const display = showAbs ? `${pct.toFixed(1)}% (${abs.toLocaleString()})` : `${pct.toFixed(1)}%`;
-      html += `<td${isMax}>${display}</td>`;
+    if (isExpandable) {
+      // 중분류: clickable expandable row
+      const icon = isExpanded ? '▼' : '▶';
+      html += `<tr class="expandable-row${isExpanded ? ' expanded' : ''}" onclick="toggleRowExpand('${safeCat}')">`;
+      html += `<td><span class="expand-icon">${icon}</span> ${row.category}</td>`;
+    } else if (isCatSmall && categoryProductMap[row.category]?.length > 0) {
+      // 소분류: hover tooltip for products
+      html += `<tr>`;
+      html += `<td onmouseenter="showCatTooltip(event,'${safeCat}')" onmouseleave="hideCatTooltip()" style="cursor:help;">${row.category}</td>`;
+    } else {
+      html += `<tr><td>${row.category}</td>`;
     }
-    html += `<td style="font-weight:600;">${(row['합계'] || 0).toLocaleString()}</td></tr>`;
+    html += renderPctCells(row) + '</tr>';
+
+    // Child rows (소분류) if this 중분류 is expanded
+    if (isExpandable && isExpanded && childDataCache[row.category]) {
+      for (const child of childDataCache[row.category]) {
+        const safeChild = child.category.replace(/'/g, "\\'");
+        const hasProducts = categoryProductMap[child.category]?.length > 0;
+        html += `<tr class="child-row">`;
+        if (hasProducts) {
+          html += `<td onmouseenter="showCatTooltip(event,'${safeChild}')" onmouseleave="hideCatTooltip()" style="cursor:help;">↳ ${child.category}</td>`;
+        } else {
+          html += `<td>↳ ${child.category}</td>`;
+        }
+        html += renderPctCells(child) + '</tr>';
+      }
+    }
   }
   html += '</tbody></table>';
 
   document.getElementById('mainTable').innerHTML = html;
   renderDrilldown();
+}
+
+// 중분류 행 펼침/접기
+async function toggleRowExpand(category) {
+  if (expandedRows.has(category)) {
+    expandedRows.delete(category);
+    renderTable();
+    return;
+  }
+  expandedRows.add(category);
+
+  if (!childDataCache[category]) {
+    const { dimension, metric, excludeUnknown, attrValues } = currentResult;
+    if (currentResult.fromConvex && currentResult.sessionIds) {
+      // Convex mode: fetch child data
+      try {
+        const levelMap = { '상품카테고리(대)': 'L1', '상품카테고리(중)': 'L2', '상품카테고리(소)': 'L3', '상품': 'product' };
+        const metricMap = { '결제금액': 'paymentAmount', '결제수': 'paymentCount', '결제상품수량': 'paymentQuantity' };
+        const result = await convexCall('query', 'queryData:getDrilldown', {
+          sessionIds: currentResult.sessionIds, dimension,
+          parentLevel: levelMap['상품카테고리(중)'] || 'L2', parentValue: category,
+          metric: metricMap[metric] || 'paymentAmount', excludeUnknown,
+        });
+        childDataCache[category] = result.map(r => {
+          const row = { category: r.category, '합계': r.total };
+          for (const d of r.distribution) { row[d.attributeValue] = d.percentage; row[`${d.attributeValue}_abs`] = d.absoluteValue; }
+          return row;
+        });
+      } catch (err) {
+        console.error('Drilldown fetch error:', err);
+        childDataCache[category] = [];
+      }
+    } else if (profileData[dimension]) {
+      // Local mode: compute child data
+      const df = profileData[dimension].df;
+      const filtered = df.filter(r => r['상품카테고리(중)'] === category);
+      childDataCache[category] = computePercentageDistribution(filtered, '상품카테고리(소)', metric, excludeUnknown);
+    }
+  }
+  renderTable();
+}
+
+// 소분류 → 상품명 매핑 빌드
+function buildCategoryProductMap() {
+  categoryProductMap = {};
+  // 모든 차원의 데이터에서 매핑 구축 (첫 번째 차원만 사용해도 충분)
+  const dims = Object.keys(profileData);
+  if (dims.length === 0) return;
+  const df = profileData[dims[0]].df;
+  const seen = {};
+  for (const r of df) {
+    const cat = r['상품카테고리(소)'] || '';
+    const name = r['상품명'] || '';
+    if (!cat || !name) continue;
+    if (!categoryProductMap[cat]) categoryProductMap[cat] = [];
+    const key = `${cat}|${name}`;
+    if (!seen[key]) {
+      seen[key] = true;
+      categoryProductMap[cat].push(name);
+    }
+  }
+}
+
+// 상품명 툴팁 표시/숨김
+function showCatTooltip(event, category) {
+  const products = categoryProductMap[category];
+  if (!products || products.length === 0) return;
+  const tooltip = document.getElementById('productTooltip');
+  tooltip.innerHTML = `
+    <div class="tt-title">${escapeHtml(category)} (${products.length}개 상품)</div>
+    <div class="tt-list">${products.map(p => `<div class="tt-item">${escapeHtml(p)}</div>`).join('')}</div>
+  `;
+  tooltip.style.display = 'block';
+  // Position near mouse
+  const x = Math.min(event.clientX + 12, window.innerWidth - 400);
+  const y = Math.min(event.clientY + 12, window.innerHeight - 250);
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+
+function hideCatTooltip() {
+  document.getElementById('productTooltip').style.display = 'none';
 }
 
 // ───────────────────────────────────────
@@ -1757,6 +1924,10 @@ async function loadPeriodData() {
 const _originalRunAnalysis = runAnalysis;
 runAnalysis = function() {
   if (currentResult && currentResult.fromConvex && currentResult.sessionIds) {
+    // Reset expand state on analysis change
+    expandedRows = new Set();
+    childDataCache = {};
+
     const dimension = document.getElementById('selDimension').value;
     const level = document.getElementById('selLevel').value;
     const excludeUnknown = document.getElementById('chkExcludeUnknown').checked;
@@ -1829,6 +2000,19 @@ function navigateTo(pageId) {
     }
   }
   if (pageId === 'p-product') {
+    // Populate product page dimension dropdown
+    const prodDimSel = document.getElementById('prodDimension');
+    if (prodDimSel) {
+      let dims = Object.keys(profileData);
+      if (dims.length === 0 && currentResult) {
+        // Convex mode: copy from category page selector
+        dims = [...document.getElementById('selDimension').options].map(o => o.value).filter(v => v);
+      }
+      const prev = prodDimSel.value;
+      prodDimSel.innerHTML = dims.map(d => `<option value="${d}">${d}</option>`).join('');
+      if (prev && dims.includes(prev)) prodDimSel.value = prev;
+      else if (currentResult) prodDimSel.value = currentResult.dimension;
+    }
     renderProductDetailView();
   }
   if (pageId === 'r-upload') refreshReviewSessions();
@@ -1846,24 +2030,25 @@ function navigateTo(pageId) {
 
 // 상품별 상세 뷰 (검색 + 테이블)
 function renderProductDetailView() {
-  if (!currentResult) {
+  if (!currentResult && Object.keys(profileData).length === 0) {
     document.getElementById('productDetailTable').innerHTML = '<div class="info-box">먼저 데이터를 업로드하거나 DB에서 불러와주세요.</div>';
     return;
   }
-  // Use "상품" level data
-  const dimension = document.getElementById('selDimension')?.value || currentResult.dimension;
-  const excludeUnknown = document.getElementById('chkExcludeUnknown')?.checked ?? true;
+  // Use product page's own controls
+  const dimension = document.getElementById('prodDimension')?.value || currentResult?.dimension || Object.keys(profileData)[0];
+  const excludeUnknown = document.getElementById('prodExcludeUnknown')?.checked ?? true;
+  const metric = productMetric;
 
-  if (currentResult.fromConvex && currentResult.sessionIds) {
-    const levelMap = { '상품카테고리(대)': 'L1', '상품카테고리(중)': 'L2', '상품카테고리(소)': 'L3', '상품': 'product' };
+  if (currentResult && currentResult.fromConvex && currentResult.sessionIds) {
     const metricMap = { '결제금액': 'paymentAmount', '결제수': 'paymentCount', '결제상품수량': 'paymentQuantity' };
+    document.getElementById('productDetailTable').innerHTML = '<div class="info-box">로딩 중...</div>';
     convexCall('query', 'queryData:getPercentageDistribution', {
       sessionIds: currentResult.sessionIds, dimension,
       aggregationLevel: 'product',
-      metric: metricMap[currentMetric] || 'paymentAmount',
+      metric: metricMap[metric] || 'paymentAmount',
       excludeUnknown,
     }).then(result => {
-      let attrValues = DIMENSIONS[dimension].slice();
+      let attrValues = DIMENSIONS[dimension]?.slice() || [];
       if (excludeUnknown) attrValues = attrValues.filter(a => a !== UNKNOWN_VALUE);
       const data = result.map(r => {
         const row = { category: r.category, '합계': r.total };
@@ -1871,14 +2056,26 @@ function renderProductDetailView() {
         return row;
       });
       renderProductTable(data, attrValues);
+    }).catch(err => {
+      document.getElementById('productDetailTable').innerHTML = `<div class="info-box">로드 실패: ${err.message}</div>`;
     });
   } else if (profileData[dimension]) {
     const df = profileData[dimension].df;
-    const data = computePercentageDistribution(df, '상품', currentMetric, excludeUnknown);
+    const data = computePercentageDistribution(df, '상품', metric, excludeUnknown);
     let attrValues = DIMENSIONS[dimension].slice();
     if (excludeUnknown) attrValues = attrValues.filter(a => a !== UNKNOWN_VALUE);
     renderProductTable(data, attrValues);
+  } else {
+    document.getElementById('productDetailTable').innerHTML = '<div class="info-box">선택한 차원의 데이터가 없습니다.</div>';
   }
+}
+
+// 상품 페이지 지표 선택
+function selectProductMetric(el, metric) {
+  productMetric = metric;
+  document.querySelectorAll('#prodMetricGroup label').forEach(l => l.classList.remove('active'));
+  el.classList.add('active');
+  renderProductDetailView();
 }
 
 function renderProductTable(data, attrValues) {

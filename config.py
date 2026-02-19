@@ -67,3 +67,12 @@ PROFILE_PAYMENT_METRICS = ["결제금액", "결제수", "결제상품수량"]
 PROFILE_REFUND_METRICS = ["환불금액", "환불건수", "환불수량"]
 PROFILE_DEFAULT_METRIC = "결제금액"
 PROFILE_UNKNOWN_VALUE = "(알수없음)"
+
+# ── 스펙 포지셔닝 분석 ──
+SPEC_POSITIONING_CATEGORIES = {
+    "premium": "프리미엄",
+    "value": "가성비",
+    "economy": "보급형",
+    "overprice": "과잉스펙",
+}
+SPEC_CHART_HEIGHT = 650

@@ -20,6 +20,12 @@ from prompts.product_extraction import (
     COMPARISON_USER_TEMPLATE,
     COMPARISON_TOOL,
 )
+from prompts.spec_analysis import (
+    SYSTEM_PROMPT as SPEC_SYSTEM,
+    USER_TEMPLATE as SPEC_USER_TEMPLATE,
+    OUR_PRODUCT_TEMPLATE as SPEC_OUR_PRODUCT_TEMPLATE,
+    STRATEGY_TOOL,
+)
 
 load_dotenv()
 
@@ -326,3 +332,104 @@ def process_cases_in_batches(all_cases: list[dict], tag_dictionary: list[str],
             progress_callback(min(i + batch_size, total), total)
 
     return all_results
+
+
+def analyze_spec_positioning(
+    scored_df,
+    column_config: dict,
+    categories: dict[str, str],
+    weights: dict[str, float],
+    our_product: dict | None = None,
+) -> dict:
+    """스펙 기반 시장 포지셔닝을 분석하고 전략을 제안한다.
+
+    Args:
+        scored_df: 점수화된 DataFrame (spec_score 포함)
+        column_config: 컬럼 구성 정보
+        categories: {제품명: 카테고리} 매핑
+        weights: {스펙컬럼: 가중치} 매핑
+        our_product: 시뮬레이션 제품 데이터 (선택)
+
+    Returns:
+        {"market_overview", "overcrowded_zones", "gap_areas",
+         "value_index_analysis", "recommendations", "our_product_assessment"}
+    """
+    import pandas as pd
+
+    client = _get_client()
+
+    product_col = column_config["product_col"]
+    price_col = column_config["price_col"]
+    spec_cols = column_config["spec_cols"]
+
+    # 제품 상세 텍스트 생성
+    products_text = ""
+    sorted_df = scored_df.sort_values(price_col)
+    for _, row in sorted_df.iterrows():
+        name = str(row[product_col])
+        cat = categories.get(name, "미분류")
+        products_text += f"\n  [{name}] (분류: {cat})\n"
+        products_text += f"    가격: {row[price_col]:,.0f}\n"
+        products_text += f"    스펙 점수: {row['spec_score']:.1f}\n"
+        for sc in spec_cols:
+            products_text += f"    {sc}: {row[sc]}\n"
+
+    # 가중치 텍스트
+    weights_text = ""
+    for name, w in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+        weights_text += f"  {name}: {w:.1%}\n"
+
+    # 카테고리별 수
+    cat_series = pd.Series(list(categories.values()))
+    cat_counts = cat_series.value_counts()
+
+    # 우리 제품 섹션
+    our_product_section = ""
+    if our_product:
+        our_product_section = SPEC_OUR_PRODUCT_TEMPLATE.format(
+            name=our_product["product_name"],
+            price=our_product["price"],
+            score=our_product["spec_score"],
+            percentile=our_product.get("percentile", 50),
+            category=our_product.get("category", "미분류"),
+            value_index=our_product.get("value_index", 0),
+        )
+
+    user_message = SPEC_USER_TEMPLATE.format(
+        product_count=len(scored_df),
+        spec_columns=", ".join(spec_cols),
+        price_range=f"{scored_df[price_col].min():,.0f} ~ {scored_df[price_col].max():,.0f}",
+        score_range=f"{scored_df['spec_score'].min():.1f} ~ {scored_df['spec_score'].max():.1f}",
+        weights_text=weights_text,
+        premium_count=int(cat_counts.get("프리미엄", 0)),
+        value_count=int(cat_counts.get("가성비", 0)),
+        economy_count=int(cat_counts.get("보급형", 0)),
+        overprice_count=int(cat_counts.get("과잉스펙", 0)),
+        products_text=products_text,
+        our_product_section=our_product_section,
+    )
+
+    def _call():
+        return client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=SPEC_SYSTEM,
+            messages=[{"role": "user", "content": user_message}],
+            tools=[STRATEGY_TOOL],
+            tool_choice={"type": "tool", "name": "submit_positioning_strategy"},
+        )
+
+    response = _call_with_retry(_call)
+
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "submit_positioning_strategy":
+            return block.input
+
+    return {
+        "market_overview": "",
+        "overcrowded_zones": [],
+        "gap_areas": [],
+        "value_index_analysis": "",
+        "recommendations": [],
+        "our_product_assessment": "",
+    }

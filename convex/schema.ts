@@ -150,4 +150,54 @@ export default defineSchema({
     .index("by_product", ["productId"])
     .index("by_category", ["category"])
     .index("by_date", ["date"]),
+
+  // ─────────────────────────────────────────
+  // 9. 시장조사 업로드 세션
+  // ─────────────────────────────────────────
+  marketResearchSessions: defineTable({
+    filename: v.string(),
+    uploadedAt: v.number(),
+    sheetCount: v.number(),        // 시트 수
+    totalProducts: v.number(),     // 총 제품 수
+    sheets: v.array(v.object({
+      sheetName: v.string(),
+      productCount: v.number(),
+    })),
+  })
+    .index("by_uploadedAt", ["uploadedAt"]),
+
+  // ─────────────────────────────────────────
+  // 10. 시장조사 카테고리 (시트 = 품목 카테고리)
+  //     실내 체어, 실외 체어, 바스툴 등
+  // ─────────────────────────────────────────
+  marketCategories: defineTable({
+    sessionId: v.id("marketResearchSessions"),
+    name: v.string(),              // 시트명 = 카테고리명 (실내 체어, 실외 체어, 바스툴)
+    specFields: v.array(v.string()), // 해당 카테고리의 스펙 필드명 목록
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_name", ["name"]),
+
+  // ─────────────────────────────────────────
+  // 11. 시장조사 제품 (각 경쟁 제품)
+  //     엑셀 전치형 데이터를 정규화하여 저장
+  // ─────────────────────────────────────────
+  marketProducts: defineTable({
+    sessionId: v.id("marketResearchSessions"),
+    categoryId: v.id("marketCategories"),
+    name: v.string(),              // 제품명
+    brand: v.string(),             // 브랜드
+    price: v.float64(),            // 가격 (숫자)
+    shippingFee: v.optional(v.string()),  // 배송비 ("무료" | "5000" 등)
+    actualPrice: v.optional(v.float64()), // 실판매가 (가격+배송비)
+    seller: v.optional(v.string()),       // 판매처
+    material: v.optional(v.string()),     // 소재
+    origin: v.optional(v.string()),       // 원산지
+    url: v.optional(v.string()),          // URL
+    specs: v.any(),                // 기타 스펙 (JSON — 유연한 key-value)
+    isOurProduct: v.boolean(),     // 우리 제품 여부
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_category", ["categoryId"])
+    .index("by_name", ["name"]),
 });

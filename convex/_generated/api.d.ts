@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as marketResearch from "../marketResearch.js";
 import type * as queryData from "../queryData.js";
 import type * as uploadData from "../uploadData.js";
 
@@ -18,6 +19,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  marketResearch: typeof marketResearch;
   queryData: typeof queryData;
   uploadData: typeof uploadData;
 }>;

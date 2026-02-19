@@ -29,6 +29,7 @@ pages = {
     ],
     "시장 조사": [
         st.Page("pages/06_market_scanner.py", title="가구 시장 스캐너", icon="🔍"),
+        st.Page("pages/08_spec_positioning.py", title="스펙 포지셔닝 분석", icon="📐"),
     ],
     "고객 분석": [
         st.Page("pages/07_customer_profile.py", title="고객 프로파일 분석", icon="👥"),

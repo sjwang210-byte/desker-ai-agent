@@ -176,13 +176,17 @@ tbody tr:hover { background: var(--primary-light); }
 .col-tag-skip { background: var(--gray-100); color: var(--gray-500); text-decoration: line-through; }
 .col-tag .tag-label { font-size: 10px; opacity: 0.7; }
 
-.type-sel {
-  width: auto !important; padding: 2px 6px !important; font-size: 11px !important;
-  border: 1px solid var(--gray-300) !important; border-radius: 6px !important;
-  background: white !important; color: var(--gray-700); cursor: pointer;
-  flex-shrink: 0; min-width: 70px;
+.type-btn {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  cursor: pointer; border: 1px dashed; transition: all 0.15s; flex-shrink: 0;
+  user-select: none; white-space: nowrap;
 }
-.type-sel:focus { border-color: var(--primary) !important; }
+.type-btn:hover { filter: brightness(0.92); transform: scale(1.05); }
+.type-btn[data-type="numeric"] { background: #FFF3E0; color: #E65100; border-color: #FFB74D; }
+.type-btn[data-type="ox"] { background: #F3E5F5; color: #7B1FA2; border-color: #CE93D8; }
+.type-btn[data-type="text"] { background: var(--gray-100); color: var(--gray-700); border-color: var(--gray-300); }
+.type-btn::after { content: ' ▾'; font-size: 9px; opacity: 0.6; }
 
 .btn-reset {
   padding: 6px 14px; border-radius: var(--radius); font-size: 12px; font-weight: 600;
@@ -322,8 +326,9 @@ tbody tr:hover { background: var(--primary-light); }
           <div><label>가격 컬럼</label><select id="sel-price"></select></div>
         </div>
         <div style="margin-top:12px;">
-          <label>스펙 컬럼 (포지셔닝 분석에 사용할 항목)</label>
-          <div id="spec-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+          <label style="margin-bottom:4px;">스펙 컬럼 (포지셔닝 분석에 사용할 항목)</label>
+          <p style="font-size:11px;color:var(--gray-500);margin-bottom:8px;font-weight:400;">타입이 잘못 감지된 경우 <strong style="color:var(--primary);">타입 라벨을 클릭</strong>하면 숫자 → 유/무 → 텍스트 순으로 변경됩니다.</p>
+          <div id="spec-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
         </div>
       </div>
     </div>
@@ -809,6 +814,41 @@ function analyzeColumnType(col) {
   return { type: 'text', label: '텍스트' };
 }
 
+// 타입 버튼 클릭 → 순환: 숫자 → 유/무 → 텍스트 → 숫자
+function cycleType(btn) {
+  const col = btn.dataset.col;
+  const cycle = ['numeric', 'ox', 'text'];
+  const icons = { numeric: '📊', ox: '⚡', text: '📝' };
+  const labels = { numeric: '숫자', ox: '유/무', text: '텍스트' };
+  const curIdx = cycle.indexOf(btn.dataset.type);
+  const nextType = cycle[(curIdx + 1) % cycle.length];
+
+  // 오버라이드 저장
+  columnTypeOverrides[col] = nextType;
+
+  // 버튼 업데이트
+  btn.dataset.type = nextType;
+  btn.textContent = '';  // clear (::after pseudo is CSS)
+  btn.textContent = `${icons[nextType]} ${labels[nextType]}`;
+
+  // 컬럼 역할 태그 + 가중치 재계산
+  const rolesBox = document.getElementById('column-roles');
+  if (rolesBox) {
+    // updateColumnRoleTags가 setupColumnMapping 내부 함수이므로 간단히 태그 직접 갱신
+    const tags = rolesBox.querySelectorAll('.col-tag');
+    tags.forEach(tag => {
+      if (tag.textContent.includes(col)) {
+        const info = analyzeColumnType(col);
+        const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
+        const cls = info.type === 'ox' ? 'col-tag-ox' : 'col-tag-spec';
+        tag.className = `col-tag ${cls}`;
+        tag.innerHTML = `${icon} ${col} <span class="tag-label">(${info.label})</span>`;
+      }
+    });
+  }
+  setupWeights();
+}
+
 // ─── Column Mapping ───
 function setupColumnMapping() {
   const card = document.getElementById('card-preview');
@@ -885,21 +925,16 @@ function setupColumnMapping() {
     tableHtml += '</tbody></table></div>';
     document.getElementById('full-preview-table').innerHTML = tableHtml;
 
-    // 스펙 체크박스 + 타입 선택
+    // 스펙 체크박스 + 타입 버튼
     const box = document.getElementById('spec-checkboxes');
     box.innerHTML = remaining.map(c => {
       const info = analyzeColumnType(c);
       const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
-      const bgColor = info.type === 'ox' ? '#F3E5F5' : info.type === 'numeric' ? '#FFF3E0' : 'var(--gray-100)';
-      return `<div class="spec-item" style="display:inline-flex;align-items:center;gap:6px;background:${bgColor};padding:5px 8px 5px 10px;border-radius:20px;font-size:13px;">
+      return `<div class="spec-item" style="display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-radius:20px;font-size:13px;background:var(--gray-50);border:1px solid var(--gray-200);">
         <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0;">
-          <input type="checkbox" class="spec-chk" value="${c}" checked> ${icon} ${c}
+          <input type="checkbox" class="spec-chk" value="${c}" checked> ${c}
         </label>
-        <select class="type-sel" data-col="${c}">
-          <option value="numeric" ${info.type==='numeric'?'selected':''}>숫자</option>
-          <option value="ox" ${info.type==='ox'?'selected':''}>유/무</option>
-          <option value="text" ${info.type==='text'?'selected':''}>텍스트</option>
-        </select>
+        <span class="type-btn" data-col="${c}" data-type="${info.type}" onclick="cycleType(this)">${icon} ${info.label}</span>
       </div>`;
     }).join('');
 
@@ -908,31 +943,9 @@ function setupColumnMapping() {
 
   selP.onchange = updateAll;
   selPr.onchange = updateAll;
-  // 체크박스 / 타입 선택 변경 시 처리 (이벤트 위임)
+  // 체크박스 변경 시 가중치 업데이트
   document.getElementById('spec-checkboxes').addEventListener('change', e => {
-    if (e.target.classList.contains('spec-chk')) {
-      setupWeights();
-    } else if (e.target.classList.contains('type-sel')) {
-      const col = e.target.dataset.col;
-      columnTypeOverrides[col] = e.target.value;
-      // 아이콘, 배경색 업데이트
-      const item = e.target.closest('.spec-item');
-      if (item) {
-        const info = analyzeColumnType(col);
-        const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
-        const bgColor = info.type === 'ox' ? '#F3E5F5' : info.type === 'numeric' ? '#FFF3E0' : 'var(--gray-100)';
-        item.style.background = bgColor;
-        const label = item.querySelector('label');
-        const chk = label.querySelector('input');
-        label.innerHTML = '';
-        label.appendChild(chk);
-        label.append(` ${icon} ${col}`);
-      }
-      // 컬럼 역할 태그 업데이트
-      updateColumnRoleTags();
-      // 가중치 재계산
-      setupWeights();
-    }
+    if (e.target.classList.contains('spec-chk')) setupWeights();
   });
 
   updateAll();

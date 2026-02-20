@@ -559,6 +559,17 @@ function saveSession(label) {
   return session.id;
 }
 
+function renameSavedSession(id) {
+  const sessions = getSavedSessions();
+  const s = sessions.find(x => x.id === id);
+  if (!s) return;
+  const newName = prompt('새 이름을 입력하세요:', s.label);
+  if (newName === null || !newName.trim()) return;
+  s.label = newName.trim();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  renderSavedSessions();
+}
+
 function deleteSavedSession(id) {
   const sessions = getSavedSessions().filter(s => s.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
@@ -605,6 +616,8 @@ function renderSavedSessions() {
           <div style="display:flex;gap:6px;flex-shrink:0;">
             <button onclick="event.stopPropagation();loadSession('${s.id}')"
               style="padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;">불러오기</button>
+            <button onclick="event.stopPropagation();renameSavedSession('${s.id}')"
+              style="padding:6px 10px;background:none;color:var(--gray-500);border:1px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;font-size:12px;" title="이름 수정">✏️</button>
             <button onclick="event.stopPropagation();deleteSavedSession('${s.id}')"
               style="padding:6px 10px;background:none;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;font-size:14px;" title="삭제">✕</button>
           </div>

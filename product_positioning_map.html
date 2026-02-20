@@ -1510,8 +1510,39 @@ function runSimulation() {
 
 // ─── Download ───
 function downloadPNG() {
-  Plotly.downloadImage('positioning-chart', {
-    format: 'png', width: 1800, height: 1200, scale: 2, filename: 'positioning_map'
+  // PNG용 큰 폰트 레이아웃 적용 후 다운로드, 완료 후 복원
+  const chartEl = document.getElementById('positioning-chart');
+  const origLayout = JSON.parse(JSON.stringify(chartEl.layout));
+
+  const pngLayout = {
+    title: { font: { size: 32 } },
+    xaxis: { title: { font: { size: 22 } }, tickfont: { size: 16 } },
+    yaxis: { title: { font: { size: 22 } }, tickfont: { size: 16 } },
+    legend: { font: { size: 18 } },
+    font: { size: 16 },
+    annotations: (chartEl.layout.annotations || []).map(a => ({
+      ...a, font: { ...a.font, size: (a.font?.size || 13) * 1.8 }
+    }))
+  };
+
+  // 각 trace의 textfont 크기 확대
+  const origTraces = chartEl.data.map(t => ({ textfont: t.textfont ? {...t.textfont} : null, marker: t.marker ? {...t.marker} : null }));
+  chartEl.data.forEach(t => {
+    if (t.textfont) t.textfont.size = (t.textfont.size || 10) * 1.8;
+    if (t.marker) t.marker.size = (t.marker.size || 12) * 1.5;
+  });
+
+  Plotly.relayout(chartEl, pngLayout).then(() => {
+    return Plotly.downloadImage(chartEl, {
+      format: 'png', width: 2000, height: 1400, scale: 2, filename: 'positioning_map'
+    });
+  }).then(() => {
+    // 원래 레이아웃 + trace 스타일 복원
+    chartEl.data.forEach((t, i) => {
+      if (origTraces[i].textfont) t.textfont = origTraces[i].textfont;
+      if (origTraces[i].marker) t.marker = origTraces[i].marker;
+    });
+    return Plotly.relayout(chartEl, origLayout);
   });
 }
 

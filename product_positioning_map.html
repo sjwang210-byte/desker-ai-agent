@@ -1197,7 +1197,7 @@ function normalizeAndScore(data, pCol, prCol, sCols, w) {
     maxs[c] = vals.length ? Math.max(...vals) : 1;
   }
 
-  return data.map((row, idx) => {
+  const results = data.map((row, idx) => {
     const r = {...row};
     let score = 0;
     for (const c of sCols) {
@@ -1216,9 +1216,27 @@ function normalizeAndScore(data, pCol, prCol, sCols, w) {
       r['_norm_'+c] = norm;
       score += norm * (w[c] || 0);
     }
-    r._score = score * 100;
+    r._rawScore = score * 100;
     return r;
-  }).sort((a,b) => b._score - a._score);
+  });
+
+  // 점수 분포 확대: 원시 점수를 5~95 범위로 리스케일
+  const rawScores = results.map(r => r._rawScore);
+  const minRaw = Math.min(...rawScores);
+  const maxRaw = Math.max(...rawScores);
+  const rawRange = maxRaw - minRaw;
+
+  for (const r of results) {
+    if (rawRange > 0.01) {
+      // 최저→5, 최고→95 로 매핑
+      r._score = ((r._rawScore - minRaw) / rawRange) * 90 + 5;
+    } else {
+      // 모든 점수가 동일하면 50으로
+      r._score = 50;
+    }
+  }
+
+  return results.sort((a,b) => b._score - a._score);
 }
 
 function classifyProducts(data, pCol, prCol) {
@@ -1387,6 +1405,17 @@ function runSimulation() {
     score += norm * (w[c] || 0);
   }
   score *= 100;
+
+  // 기존 제품들과 동일한 스케일로 리스케일
+  const rawScores = scored.map(r => r._rawScore);
+  const minRaw = Math.min(...rawScores);
+  const maxRaw = Math.max(...rawScores);
+  const rawRange = maxRaw - minRaw;
+  if (rawRange > 0.01) {
+    score = ((score - minRaw) / rawRange) * 90 + 5;
+  } else {
+    score = 50;
+  }
 
   const mp = categories._medianPrice, ms = categories._medianScore;
   const hp = price >= mp, hs = score >= ms;

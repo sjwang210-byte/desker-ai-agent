@@ -176,6 +176,30 @@ tbody tr:hover { background: var(--primary-light); }
 .col-tag-skip { background: var(--gray-100); color: var(--gray-500); text-decoration: line-through; }
 .col-tag .tag-label { font-size: 10px; opacity: 0.7; }
 
+.type-sel {
+  width: auto !important; padding: 2px 6px !important; font-size: 11px !important;
+  border: 1px solid var(--gray-300) !important; border-radius: 6px !important;
+  background: white !important; color: var(--gray-700); cursor: pointer;
+  flex-shrink: 0; min-width: 70px;
+}
+.type-sel:focus { border-color: var(--primary) !important; }
+
+.btn-reset {
+  padding: 6px 14px; border-radius: var(--radius); font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--danger); background: white; color: var(--danger);
+  transition: all 0.15s;
+}
+.btn-reset:hover { background: var(--danger); color: white; }
+
+.weight-total-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-top: 12px;
+  background: var(--gray-50); border-radius: var(--radius); border: 1px solid var(--gray-200);
+}
+.weight-total-bar .total-label { font-size: 12px; font-weight: 600; color: var(--gray-700); }
+.weight-total-bar .total-value { font-size: 14px; font-weight: 700; }
+.weight-total-bar .total-ok { color: var(--success); }
+.weight-total-bar .total-warn { color: var(--danger); }
+
 .hidden { display: none !important; }
 .fade-in { animation: fadeIn 0.3s; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -212,9 +236,14 @@ tbody tr:hover { background: var(--primary-light); }
 
   <!-- Main -->
   <main class="main-content">
-    <div class="header-bar">
-      <h2>📐 제품 포지셔닝 맵</h2>
-      <p>시장 제품 스펙 데이터를 업로드하면 가중 스펙 점수 기반 포지셔닝 맵을 생성합니다</p>
+    <div class="header-bar" style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h2>📐 제품 포지셔닝 맵</h2>
+        <p>시장 제품 스펙 데이터를 업로드하면 가중 스펙 점수 기반 포지셔닝 맵을 생성합니다</p>
+      </div>
+      <button class="btn-reset hidden" id="btn-global-reset" onclick="resetAll()" style="border-color:rgba(255,255,255,0.6);color:white;background:rgba(255,255,255,0.15);flex-shrink:0;">
+        초기화
+      </button>
     </div>
 
     <!-- Step 1: Upload -->
@@ -393,6 +422,33 @@ let scored = [];
 let categories = {};
 let simProduct = null;
 let columnTypeOverrides = {};  // {colName: 'numeric'|'ox'|'text'} 사용자 수동 지정
+
+// ─── Reset ───
+function resetAll() {
+  rawData = [];
+  parsedMarket = null;
+  columns = [];
+  productCol = '';
+  priceCol = '';
+  specCols = [];
+  weights = {};
+  scored = [];
+  categories = {};
+  simProduct = null;
+  columnTypeOverrides = {};
+
+  // 모든 결과 카드 숨기기
+  ['card-category','card-preview','card-weights','card-results','card-sim'].forEach(id => {
+    document.getElementById(id).classList.add('hidden');
+  });
+  // 업로드 상태 초기화
+  document.getElementById('upload-status').innerHTML = '';
+  // 파일 입력 초기화
+  const fileInput = document.querySelector('#source-file input[type="file"]');
+  if (fileInput) fileInput.value = '';
+  // 리셋 버튼 숨기기
+  document.getElementById('btn-global-reset').classList.add('hidden');
+}
 
 // ─── Source Tab Switch ───
 function switchSource(mode) {
@@ -758,6 +814,8 @@ function setupColumnMapping() {
   const card = document.getElementById('card-preview');
   card.classList.remove('hidden');
   card.classList.add('fade-in');
+  // 리셋 버튼 표시
+  document.getElementById('btn-global-reset').classList.remove('hidden');
 
   // 자동 감지: 제품명, 가격 컬럼
   let autoProduct = columns.find(c => /^제품명$|^상품명$|^이름$/i.test(c)) || columns[0];
@@ -833,14 +891,14 @@ function setupColumnMapping() {
       const info = analyzeColumnType(c);
       const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
       const bgColor = info.type === 'ox' ? '#F3E5F5' : info.type === 'numeric' ? '#FFF3E0' : 'var(--gray-100)';
-      return `<div class="spec-item" style="display:flex;align-items:center;gap:4px;background:${bgColor};padding:4px 8px 4px 10px;border-radius:16px;font-size:13px;">
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;flex:1;">
+      return `<div class="spec-item" style="display:inline-flex;align-items:center;gap:6px;background:${bgColor};padding:5px 8px 5px 10px;border-radius:20px;font-size:13px;">
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0;">
           <input type="checkbox" class="spec-chk" value="${c}" checked> ${icon} ${c}
         </label>
-        <select class="type-sel" data-col="${c}" style="font-size:10px;padding:1px 2px;border:1px solid var(--gray-300);border-radius:4px;background:white;color:var(--gray-700);cursor:pointer;">
-          <option value="numeric" ${info.type==='numeric'?'selected':''}>📊 숫자</option>
-          <option value="ox" ${info.type==='ox'?'selected':''}>⚡ 유/무</option>
-          <option value="text" ${info.type==='text'?'selected':''}>📝 텍스트</option>
+        <select class="type-sel" data-col="${c}">
+          <option value="numeric" ${info.type==='numeric'?'selected':''}>숫자</option>
+          <option value="ox" ${info.type==='ox'?'selected':''}>유/무</option>
+          <option value="text" ${info.type==='text'?'selected':''}>텍스트</option>
         </select>
       </div>`;
     }).join('');
@@ -936,6 +994,7 @@ function calcVarianceWeights(data, cols) {
 function renderWeightBars(w) {
   const sorted = Object.entries(w).sort((a,b) => b[1]-a[1]);
   const maxW = Math.max(...Object.values(w), 0.01);
+  const totalPct = Object.values(w).reduce((s,v) => s+v, 0) * 100;
 
   // 유/무 항목과 숫자 항목 분리
   const oxCols = sorted.filter(([n]) => analyzeColumnType(n).type === 'ox');
@@ -950,7 +1009,12 @@ function renderWeightBars(w) {
         <div class="name">${icon} ${n}${typeLabel}</div>
         <div class="bar-wrap"><div class="bar" style="width:${(v/maxW*100).toFixed(0)}%;background:${info.type==='ox'?'#CE93D8':'var(--primary)'}"><span>${(v*100).toFixed(1)}%</span></div></div>
       </div>`;
-    }).join('')}</div>`;
+    }).join('')}</div>
+    <div class="weight-total-bar">
+      <span class="total-label">합계:</span>
+      <span class="total-value total-ok">${totalPct.toFixed(0)}%</span>
+      <span style="font-size:11px;color:var(--gray-500);">(${sorted.length}개 항목)</span>
+    </div>`;
 
   // 가중치 요약
   const summary = document.getElementById('weight-summary');
@@ -969,18 +1033,48 @@ function renderWeightBars(w) {
 }
 
 function renderWeightSliders(cols, defaults) {
-  document.getElementById('weight-manual').innerHTML =
-    `<p style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">슬라이더를 조절하세요. 합계는 자동으로 100%에 맞춰집니다.</p>
+  const container = document.getElementById('weight-manual');
+  container.innerHTML =
+    `<p style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">슬라이더를 조절하세요. 각 항목의 비중을 설정하면 합계 대비 비율로 자동 환산됩니다.</p>
     <div class="slider-grid">${cols.map(c => {
       const info = analyzeColumnType(c);
       const icon = info.type === 'ox' ? '⚡' : info.type === 'numeric' ? '📊' : '📝';
       return `<div class="slider-item">
         <label>${icon} ${c} <span style="font-size:10px;color:var(--gray-500);font-weight:400;">(${info.label})</span></label>
         <input type="range" min="0" max="100" value="${Math.round((defaults[c]||0.5)*100)}" class="weight-slider" data-col="${c}"
-          oninput="this.nextElementSibling.textContent=(this.value)+'%'">
+          oninput="updateSliderTotal()">
         <div class="val">${Math.round((defaults[c]||0.5)*100)}%</div>
       </div>`;
-    }).join('')}</div>`;
+    }).join('')}</div>
+    <div class="weight-total-bar" id="manual-weight-total">
+      <span class="total-label">합계:</span>
+      <span class="total-value" id="manual-total-value">-</span>
+      <span style="font-size:11px;color:var(--gray-500);" id="manual-total-note"></span>
+    </div>`;
+  updateSliderTotal();
+}
+
+function updateSliderTotal() {
+  const sliders = document.querySelectorAll('.weight-slider');
+  let rawTotal = 0;
+  sliders.forEach(s => {
+    const v = parseInt(s.value);
+    rawTotal += v;
+    // 각 슬라이더 값 표시 업데이트
+    s.nextElementSibling.textContent = v + '%';
+  });
+  const totalEl = document.getElementById('manual-total-value');
+  const noteEl = document.getElementById('manual-total-note');
+  if (totalEl) {
+    totalEl.textContent = rawTotal + '%';
+    if (rawTotal === 100) {
+      totalEl.className = 'total-value total-ok';
+      noteEl.textContent = '(정확히 100%)';
+    } else {
+      totalEl.className = 'total-value total-warn';
+      noteEl.textContent = `(분석 시 ${rawTotal > 0 ? '100%로 자동 환산' : '가중치 없음'})`;
+    }
+  }
 }
 
 function getWeights() {

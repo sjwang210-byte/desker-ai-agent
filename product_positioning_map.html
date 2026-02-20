@@ -1265,6 +1265,38 @@ function renderPositioningMap() {
   const catColors = { '프리미엄':'#9C27B0', '가성비':'#4CAF50', '보급형':'#2196F3', '과잉스펙':'#FF9800' };
   const catSymbols = { '프리미엄':'diamond', '가성비':'triangle-up', '보급형':'circle', '과잉스펙':'square' };
 
+  // 브랜드 컬럼 찾기
+  const brandCol = columns.find(c => /^브랜드$|^brand$/i.test(c)) || '';
+
+  // 라벨 겹침 방지: 점 위치 기반으로 방향 분산
+  const allPoints = scored.map(r => ({ x: r[priceCol], y: r._score }));
+
+  function getTextPosition(r, idx) {
+    const positions = ['top center', 'bottom center', 'top right', 'top left', 'bottom right', 'bottom left', 'middle right', 'middle left'];
+    // 가까운 다른 점이 있는지 확인 → 방향 분산
+    const x = r[priceCol], y = r._score;
+    let bestPos = 'top center';
+    let minConflict = Infinity;
+    for (const pos of positions) {
+      let conflict = 0;
+      for (let j = 0; j < allPoints.length; j++) {
+        if (j === idx) continue;
+        const dx = (allPoints[j].x - x) / (Math.max(...allPoints.map(p=>p.x)) - Math.min(...allPoints.map(p=>p.x)) || 1);
+        const dy = (allPoints[j].y - y) / 100;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.15) conflict += 1 / (dist + 0.01);
+      }
+      // 위치에 따른 보정 (top center 선호)
+      if (pos === 'top center') conflict -= 0.5;
+      if (conflict < minConflict) { minConflict = conflict; bestPos = pos; }
+    }
+    return bestPos;
+  }
+
+  // 미리 전체 scored에 대해 position 계산
+  const textPositions = {};
+  scored.forEach((r, i) => { textPositions[r[productCol]] = getTextPosition(r, i); });
+
   const traces = [];
   for (const [cat, color] of Object.entries(catColors)) {
     const items = scored.filter(r => categories[r[productCol]] === cat);
@@ -1272,9 +1304,14 @@ function renderPositioningMap() {
     traces.push({
       x: items.map(r => r[priceCol]),
       y: items.map(r => r._score),
-      text: items.map(r => r[productCol]),
+      text: items.map(r => {
+        const brand = brandCol && r[brandCol] ? `<b>${r[brandCol]}</b> ` : '';
+        const name = r[productCol];
+        return brand + name;
+      }),
       hovertext: items.map(r => {
-        let h = `<b>${r[productCol]}</b><br>가격: ${Number(r[priceCol]).toLocaleString()}<br>스펙 점수: ${r._score.toFixed(1)} (원시: ${r._rawScore.toFixed(2)})`;
+        const brand = brandCol && r[brandCol] ? `[${r[brandCol]}] ` : '';
+        let h = `<b>${brand}${r[productCol]}</b><br>가격: ${Number(r[priceCol]).toLocaleString()}<br>스펙 점수: ${r._score.toFixed(1)} (원시: ${r._rawScore.toFixed(2)})`;
         for (const c of specCols) {
           const numVal = specToNum(r[c]);
           h += `<br>${c}: ${r[c]} → ${numVal !== null ? numVal : '?'}`;
@@ -1285,9 +1322,9 @@ function renderPositioningMap() {
       mode: 'markers+text',
       type: 'scatter',
       name: cat,
-      textposition: 'top center',
+      textposition: items.map(r => textPositions[r[productCol]]),
       textfont: { size: 10 },
-      marker: { color, symbol: catSymbols[cat], size: 12, line: { width: 1, color: 'white' } }
+      marker: { color, symbol: catSymbols[cat], size: 14, line: { width: 2, color: 'white' } }
     });
   }
 
@@ -1295,7 +1332,7 @@ function renderPositioningMap() {
   if (simProduct) {
     traces.push({
       x: [simProduct.price], y: [simProduct.score],
-      text: [simProduct.name],
+      text: [`<b>★ ${simProduct.name}</b>`],
       hovertext: [`<b>${simProduct.name}</b><br>가격: ${simProduct.price.toLocaleString()}<br>스펙 점수: ${simProduct.score.toFixed(1)}<br>카테고리: ${simProduct.category}`],
       hoverinfo: 'text',
       mode: 'markers+text', type: 'scatter', name: '우리 제품',
@@ -1307,26 +1344,40 @@ function renderPositioningMap() {
 
   const mp = categories._medianPrice || 0;
   const ms = categories._medianScore || 50;
+  const prices = scored.map(r => r[priceCol]);
+  const xPad = (Math.max(...prices) - Math.min(...prices)) * 0.08 || 50000;
 
   const layout = {
-    title: { text: '스펙 기반 제품 포지셔닝 맵', font: { family: 'Malgun Gothic', size: 16 } },
-    xaxis: { title: '가격', tickformat: ',', gridcolor: '#eee' },
-    yaxis: { title: '가중 스펙 점수 (0-100)', range: [-5, 105], gridcolor: '#eee' },
+    title: {
+      text: '제품 포지셔닝 맵',
+      font: { family: 'Malgun Gothic', size: 20, color: '#333' },
+      x: 0.5, xanchor: 'center'
+    },
+    xaxis: {
+      title: { text: '제품 가격 (원)', font: { size: 13 } },
+      tickformat: ',', gridcolor: '#f0f0f0',
+      range: [Math.min(...prices) - xPad, Math.max(...prices) + xPad]
+    },
+    yaxis: {
+      title: { text: '가중 스펙 점수 (0-100)', font: { size: 13 } },
+      range: [-5, 110], gridcolor: '#f0f0f0'
+    },
     shapes: [
-      { type:'line', x0:mp, x1:mp, y0:-5, y1:105, line:{dash:'dash',color:'#bbb',width:1} },
-      { type:'line', x0:0, x1:1, y0:ms, y1:ms, xref:'paper', line:{dash:'dash',color:'#bbb',width:1} }
+      { type:'line', x0:mp, x1:mp, y0:-5, y1:110, line:{dash:'dot',color:'#ccc',width:1.5} },
+      { type:'line', x0:0, x1:1, y0:ms, y1:ms, xref:'paper', line:{dash:'dot',color:'#ccc',width:1.5} }
     ],
     annotations: [
-      { x:0.02, y:0.98, xref:'paper', yref:'paper', text:'가성비 우수', showarrow:false, font:{size:14,color:'rgba(76,175,80,0.2)'} },
-      { x:0.98, y:0.98, xref:'paper', yref:'paper', text:'프리미엄', showarrow:false, font:{size:14,color:'rgba(156,39,176,0.2)'}, xanchor:'right' },
-      { x:0.02, y:0.02, xref:'paper', yref:'paper', text:'보급형', showarrow:false, font:{size:14,color:'rgba(33,150,243,0.2)'} },
-      { x:0.98, y:0.02, xref:'paper', yref:'paper', text:'과잉 가격', showarrow:false, font:{size:14,color:'rgba(255,152,0,0.2)'}, xanchor:'right' }
+      { x:0.01, y:1.02, xref:'paper', yref:'paper', text:'<b>가성비</b>', showarrow:false, font:{size:13,color:'rgba(76,175,80,0.3)'}, xanchor:'left' },
+      { x:0.99, y:1.02, xref:'paper', yref:'paper', text:'<b>프리미엄</b>', showarrow:false, font:{size:13,color:'rgba(156,39,176,0.3)'}, xanchor:'right' },
+      { x:0.01, y:-0.02, xref:'paper', yref:'paper', text:'<b>보급형</b>', showarrow:false, font:{size:13,color:'rgba(33,150,243,0.3)'}, xanchor:'left' },
+      { x:0.99, y:-0.02, xref:'paper', yref:'paper', text:'<b>과잉 가격</b>', showarrow:false, font:{size:13,color:'rgba(255,152,0,0.3)'}, xanchor:'right' }
     ],
-    legend: { orientation:'h', y:1.12 },
+    legend: { orientation:'h', y:1.15, x:0.5, xanchor:'center', font:{size:12} },
     template: 'plotly_white',
     font: { family: 'Malgun Gothic, sans-serif' },
-    height: 600,
-    margin: { t:60, b:60, l:60, r:20 }
+    height: 650,
+    margin: { t:80, b:70, l:70, r:30 },
+    plot_bgcolor: '#fafbfc'
   };
 
   Plotly.newPlot('positioning-chart', traces, layout, { responsive:true });

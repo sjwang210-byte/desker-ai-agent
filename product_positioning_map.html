@@ -1334,15 +1334,26 @@ function renderPositioningMap() {
 
 // ─── Result Table ───
 function renderResultTable() {
-  const cols = [productCol, priceCol, ...specCols, '_score'];
-  const headers = cols.map(c => c === '_score' ? '스펙 점수' : c);
+  const cols = [productCol, priceCol, ...specCols, '_rawScore', '_score'];
+  const headers = cols.map(c => {
+    if (c === '_score') return '최종 점수';
+    if (c === '_rawScore') return '원시 점수';
+    return c;
+  });
   const rows = scored.map(r => {
     const cat = categories[r[productCol]] || '';
     return `<tr>${cols.map(c => {
-      if (c === '_score') return `<td><div style="display:flex;align-items:center;gap:8px;"><div class="progress-bar" style="width:80px"><div class="fill" style="width:${r._score}%"></div></div><span>${r._score.toFixed(1)}</span></div></td>`;
+      if (c === '_score') return `<td><div style="display:flex;align-items:center;gap:8px;"><div class="progress-bar" style="width:80px"><div class="fill" style="width:${r._score}%"></div></div><span style="font-weight:700;">${r._score.toFixed(1)}</span></div></td>`;
+      if (c === '_rawScore') return `<td style="font-size:11px;color:var(--gray-500);">${r._rawScore.toFixed(3)}</td>`;
       if (c === productCol) return `<td><strong>${r[c]}</strong> <span class="category-badge badge-${cat}">${cat}</span></td>`;
       if (c === priceCol) return `<td>${Number(r[c]).toLocaleString()}</td>`;
-      return `<td>${r[c]??''}</td>`;
+      // 스펙 컬럼: 원본값 + 변환값 표시
+      const raw = r[c] ?? '';
+      const num = specToNum(r[c]);
+      const norm = r['_norm_'+c];
+      const numStr = num !== null ? num : '?';
+      const color = num === 1 ? '#4CAF50' : num === 0 ? '#E53935' : 'var(--gray-700)';
+      return `<td><span style="color:${color};font-weight:600;">${raw}</span> <span style="font-size:10px;color:var(--gray-500);">(${numStr})</span></td>`;
     }).join('')}</tr>`;
   });
   document.getElementById('result-table').innerHTML =

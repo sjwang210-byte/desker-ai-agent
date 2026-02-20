@@ -370,7 +370,19 @@ tbody tr:hover { background: var(--primary-light); }
         <button class="tab-btn" onclick="switchTab('tab-table',this)">데이터 테이블</button>
       </div>
       <div class="tab-panel active" id="tab-map">
-        <div id="positioning-chart" style="width:100%;height:600px;"></div>
+        <div id="positioning-chart" style="width:100%;height:650px;"></div>
+
+        <!-- 제품 표시/숨기기 -->
+        <div style="margin-top:12px;padding:12px 16px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:13px;font-weight:700;color:var(--gray-700);">맵 표시 제품</span>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-sm btn-secondary" onclick="toggleAllProducts(true)" style="padding:3px 10px;font-size:11px;">전체 선택</button>
+              <button class="btn btn-sm btn-secondary" onclick="toggleAllProducts(false)" style="padding:3px 10px;font-size:11px;">전체 해제</button>
+            </div>
+          </div>
+          <div id="product-toggles" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
 
         <!-- 사분면 설명 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;">
@@ -433,6 +445,7 @@ let weights = {};
 let scored = [];
 let categories = {};
 let simProducts = [];  // [{name, price, score, category, rank, pct, color}]
+let hiddenProducts = new Set();  // 맵에서 숨긴 제품명
 let columnTypeOverrides = {};  // {colName: 'numeric'|'ox'|'text'} 사용자 수동 지정
 
 // ─── Reset ───
@@ -447,6 +460,7 @@ function resetAll() {
   scored = [];
   categories = {};
   simProducts = [];
+  hiddenProducts = new Set();
   columnTypeOverrides = {};
 
   // 모든 결과 카드 숨기기
@@ -1267,6 +1281,45 @@ function classifyProducts(data, pCol, prCol) {
   return cats;
 }
 
+// ─── Product Toggles ───
+function renderProductToggles() {
+  const container = document.getElementById('product-toggles');
+  if (!container || !scored.length) return;
+  const catColors = { '프리미엄':'#9C27B0', '가성비':'#4CAF50', '보급형':'#2196F3', '과잉스펙':'#FF9800' };
+  container.innerHTML = scored.map(r => {
+    const name = r[productCol];
+    const cat = categories[name] || '';
+    const color = catColors[cat] || 'var(--gray-500)';
+    const hidden = hiddenProducts.has(name);
+    return `<label style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:14px;font-size:12px;cursor:pointer;
+      border:1.5px solid ${hidden ? 'var(--gray-300)' : color};
+      background:${hidden ? 'var(--gray-100)' : color + '15'};
+      color:${hidden ? 'var(--gray-400)' : color};
+      opacity:${hidden ? '0.5' : '1'};transition:all 0.15s;">
+      <input type="checkbox" ${hidden ? '' : 'checked'} onchange="toggleProduct('${name.replace(/'/g, "\\'")}', this.checked)"
+        style="accent-color:${color};"> ${name}
+    </label>`;
+  }).join('');
+}
+
+function toggleProduct(name, show) {
+  if (show) {
+    hiddenProducts.delete(name);
+  } else {
+    hiddenProducts.add(name);
+  }
+  renderPositioningMap();
+}
+
+function toggleAllProducts(show) {
+  if (show) {
+    hiddenProducts.clear();
+  } else {
+    scored.forEach(r => hiddenProducts.add(r[productCol]));
+  }
+  renderPositioningMap();
+}
+
 // ─── Positioning Map ───
 function renderPositioningMap() {
   const catColors = { '프리미엄':'#9C27B0', '가성비':'#4CAF50', '보급형':'#2196F3', '과잉스펙':'#FF9800' };
@@ -1275,8 +1328,14 @@ function renderPositioningMap() {
   // 브랜드 컬럼 찾기
   const brandCol = columns.find(c => /^브랜드$|^brand$/i.test(c)) || '';
 
+  // 숨긴 제품 필터링
+  const visibleScored = scored.filter(r => !hiddenProducts.has(r[productCol]));
+
+  // 제품 토글 버튼 렌더
+  renderProductToggles();
+
   // 라벨 겹침 방지: 점 위치 기반으로 방향 분산
-  const allPoints = scored.map(r => ({ x: r[priceCol], y: r._score }));
+  const allPoints = visibleScored.map(r => ({ x: r[priceCol], y: r._score }));
 
   function getTextPosition(r, idx) {
     const positions = ['top center', 'bottom center', 'top right', 'top left', 'bottom right', 'bottom left', 'middle right', 'middle left'];
@@ -1300,13 +1359,13 @@ function renderPositioningMap() {
     return bestPos;
   }
 
-  // 미리 전체 scored에 대해 position 계산
+  // 미리 전체 visibleScored에 대해 position 계산
   const textPositions = {};
-  scored.forEach((r, i) => { textPositions[r[productCol]] = getTextPosition(r, i); });
+  visibleScored.forEach((r, i) => { textPositions[r[productCol]] = getTextPosition(r, i); });
 
   const traces = [];
   for (const [cat, color] of Object.entries(catColors)) {
-    const items = scored.filter(r => categories[r[productCol]] === cat);
+    const items = visibleScored.filter(r => categories[r[productCol]] === cat);
     if (!items.length) continue;
     traces.push({
       x: items.map(r => r[priceCol]),
@@ -1358,7 +1417,7 @@ function renderPositioningMap() {
 
   const mp = categories._medianPrice || 0;
   const ms = categories._medianScore || 50;
-  const allPrices = [...scored.map(r => r[priceCol]), ...simProducts.map(p => p.price)];
+  const allPrices = [...visibleScored.map(r => r[priceCol]), ...simProducts.map(p => p.price)];
   const prices = allPrices.length ? allPrices : [0];
   const xPad = (Math.max(...prices) - Math.min(...prices)) * 0.08 || 50000;
 

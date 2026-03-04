@@ -384,10 +384,21 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 .product-item.selected { background:var(--primary-light); font-weight:600; color:var(--primary); }
 .product-item .cnt { font-size:12px; color:var(--gray-500); }
 
-/* Image modal */
-.img-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:1000; background:rgba(0,0,0,0.85); justify-content:center; align-items:center; cursor:pointer; }
+/* Image modal with nav + review panel */
+.img-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:1000; background:rgba(0,0,0,0.9); }
 .img-modal.show { display:flex; }
-.img-modal img { max-width:90vw; max-height:90vh; border-radius:8px; }
+.img-modal-body { flex:1; display:flex; justify-content:center; align-items:center; position:relative; cursor:pointer; min-width:0; }
+.img-modal-body img { max-width:100%; max-height:90vh; border-radius:8px; object-fit:contain; }
+.img-nav { position:absolute; top:50%; transform:translateY(-50%); width:48px; height:48px; background:rgba(255,255,255,0.15); border:none; border-radius:50%; color:white; font-size:24px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:10; backdrop-filter:blur(4px); }
+.img-nav:hover { background:rgba(255,255,255,0.3); }
+.img-nav.prev { left:16px; }
+.img-nav.next { right:16px; }
+.img-modal-panel { width:340px; background:#1a1a1a; color:#eee; overflow-y:auto; padding:20px; font-size:13px; line-height:1.7; border-left:1px solid rgba(255,255,255,0.1); }
+.img-modal-panel .panel-product { font-weight:600; font-size:14px; color:#90CAF9; margin-bottom:4px; }
+.img-modal-panel .panel-stars { color:#FFD54F; font-size:13px; margin-bottom:8px; }
+.img-modal-panel .panel-content { color:#ccc; white-space:pre-wrap; word-break:break-word; }
+.img-modal-panel .panel-meta { margin-top:12px; font-size:11px; color:#888; }
+.img-modal-counter { position:absolute; top:16px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,0.7); font-size:13px; z-index:10; }
 
 /* Keyword drilldown */
 .kw-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; border-radius:4px; padding:2px 4px; transition:background 0.15s; }
@@ -803,6 +814,12 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
           <option value="1">★☆☆☆☆ (1)</option>
         </select>
       </div>
+      <div class="control-group" style="flex:1; min-width:220px;">
+        <label>상품 검색</label>
+        <input type="text" id="galleryProductSearch" placeholder="상품명 검색..."
+          oninput="galleryPage=1; renderPhotoGallery();"
+          style="width:100%; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+      </div>
       <div style="font-size:13px; color:var(--gray-700); padding-bottom:4px;">
         포토 리뷰 <strong id="galleryPhotoCount">0</strong>건 / 사진 <strong id="galleryImageCount">0</strong>장
       </div>
@@ -814,9 +831,20 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
 
 </div><!-- /main-content -->
 
-<!-- Image Modal -->
-<div class="img-modal" id="imgModal" onclick="closeImageModal()">
-  <img id="imgModalSrc" src="" alt="">
+<!-- Image Modal with nav + review panel -->
+<div class="img-modal" id="imgModal">
+  <div class="img-modal-body" onclick="closeImageModal()">
+    <div class="img-modal-counter" id="imgModalCounter"></div>
+    <button class="img-nav prev" onclick="event.stopPropagation(); navigateGalleryModal(-1)">‹</button>
+    <img id="imgModalSrc" src="" alt="" onclick="event.stopPropagation()">
+    <button class="img-nav next" onclick="event.stopPropagation(); navigateGalleryModal(1)">›</button>
+  </div>
+  <div class="img-modal-panel" id="imgModalPanel">
+    <div class="panel-product" id="imgPanelProduct"></div>
+    <div class="panel-stars" id="imgPanelStars"></div>
+    <div class="panel-content" id="imgPanelContent"></div>
+    <div class="panel-meta" id="imgPanelMeta"></div>
+  </div>
 </div>
 
 <!-- Product Tooltip -->
@@ -3355,6 +3383,8 @@ function highlightNegative(html, keywords) {
 // ───────────────────────────────────────
 let galleryPage = 1;
 const GALLERY_PER_PAGE = 30;
+let galleryPhotos = [];  // 현재 갤러리의 전체 사진 배열
+let galleryModalIdx = -1; // 현재 모달에 표시 중인 인덱스
 
 // 네이버 이미지 URL 썸네일 변환 (갤러리용 작은 이미지)
 function thumbUrl(url) {
@@ -3374,12 +3404,15 @@ function renderPhotoGallery() {
     }
   }
 
+  const productSearch = (document.getElementById('galleryProductSearch')?.value || '').trim().toLowerCase();
+
   // 필터링
   let reviews = reviewData.filter(r => r.photos && r.photos.length > 0);
   if (catFilter !== '__ALL__') reviews = reviews.filter(r => r.category === catFilter);
   if (ratingFilter !== 'all') reviews = reviews.filter(r => r.rating === parseInt(ratingFilter));
+  if (productSearch) reviews = reviews.filter(r => r.productName.toLowerCase().includes(productSearch) || r.productId.toLowerCase().includes(productSearch));
 
-  // flat 배열
+  // flat 배열 (모달에서 리뷰 내용 표시용으로 전체 content 포함)
   const allPhotos = [];
   for (const r of reviews) {
     for (const url of r.photos) {
@@ -3388,10 +3421,14 @@ function renderPhotoGallery() {
         productName: r.productName,
         rating: r.rating,
         date: r.date,
-        content: (r.content || '').substring(0, 60),
+        author: r.author || '',
+        content: r.content || '',
+        category: r.category || '',
       });
     }
   }
+  // 모달 네비게이션용 전역 저장
+  galleryPhotos = allPhotos;
 
   document.getElementById('galleryPhotoCount').textContent = reviews.length.toLocaleString();
   document.getElementById('galleryImageCount').textContent = allPhotos.length.toLocaleString();
@@ -3406,14 +3443,17 @@ function renderPhotoGallery() {
     grid.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500); grid-column:1/-1;">포토 리뷰가 없습니다.</div>';
   } else {
     // placeholder 방식: src 대신 data-src, IntersectionObserver로 지연 로드
-    grid.innerHTML = pagePhotos.map(p => {
+    grid.innerHTML = pagePhotos.map((p, i) => {
+      const globalIdx = start + i;
       const stars = '★'.repeat(p.rating) + '☆'.repeat(5 - p.rating);
       const shortName = p.productName.length > 20 ? p.productName.substring(0, 20) + '...' : p.productName;
-      return `<div class="gallery-item" onclick="openImageModal('${escapeHtml(p.url)}')" title="${escapeHtml(p.productName)}\n${p.content}">
+      const shortContent = p.content.length > 40 ? p.content.substring(0, 40) + '...' : p.content;
+      return `<div class="gallery-item" onclick="openGalleryModal(${globalIdx})">
         <img data-src="${escapeHtml(thumbUrl(p.url))}" alt="리뷰 사진" style="background:var(--gray-200);" onerror="this.parentElement.style.display='none'">
         <div class="gallery-caption">
           <div style="color:#FFD54F; font-size:10px;">${stars}</div>
           <div>${escapeHtml(shortName)}</div>
+          ${shortContent ? `<div style="font-size:10px; color:#ccc; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(shortContent)}</div>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -3434,16 +3474,68 @@ function renderPhotoGallery() {
 }
 
 // ───────────────────────────────────────
-// Review - Image Modal
+// Review - Image Modal (with gallery nav)
 // ───────────────────────────────────────
-function openImageModal(url) {
-  document.getElementById('imgModalSrc').src = url;
+function openGalleryModal(idx) {
+  galleryModalIdx = idx;
+  showGalleryModalAt(idx);
   document.getElementById('imgModal').classList.add('show');
 }
+
+function openImageModal(url) {
+  // 리뷰 리스트 등 갤러리 외부에서 호출 시 (단일 이미지)
+  galleryPhotos = [{ url, productName: '', rating: 0, content: '', date: '', author: '', category: '' }];
+  galleryModalIdx = 0;
+  showGalleryModalAt(0);
+  document.getElementById('imgModal').classList.add('show');
+}
+
+function showGalleryModalAt(idx) {
+  const p = galleryPhotos[idx];
+  if (!p) return;
+  document.getElementById('imgModalSrc').src = p.url;
+  // 카운터
+  const counter = document.getElementById('imgModalCounter');
+  counter.textContent = galleryPhotos.length > 1 ? `${idx + 1} / ${galleryPhotos.length}` : '';
+  // 네비 버튼 표시
+  document.querySelector('.img-nav.prev').style.display = galleryPhotos.length > 1 ? 'flex' : 'none';
+  document.querySelector('.img-nav.next').style.display = galleryPhotos.length > 1 ? 'flex' : 'none';
+  // 리뷰 패널
+  const panel = document.getElementById('imgModalPanel');
+  if (p.productName) {
+    panel.style.display = 'block';
+    document.getElementById('imgPanelProduct').textContent = p.productName;
+    document.getElementById('imgPanelStars').textContent = p.rating > 0 ? '★'.repeat(p.rating) + '☆'.repeat(5 - p.rating) + ` (${p.rating})` : '';
+    document.getElementById('imgPanelContent').textContent = p.content || '(리뷰 내용 없음)';
+    document.getElementById('imgPanelMeta').innerHTML = [
+      p.author ? `작성자: ${escapeHtml(p.author)}` : '',
+      p.date || '',
+      p.category ? `<span style="background:#333; padding:2px 6px; border-radius:4px;">${escapeHtml(p.category)}</span>` : '',
+    ].filter(Boolean).join(' &middot; ');
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function navigateGalleryModal(dir) {
+  const newIdx = galleryModalIdx + dir;
+  if (newIdx < 0 || newIdx >= galleryPhotos.length) return;
+  galleryModalIdx = newIdx;
+  showGalleryModalAt(newIdx);
+}
+
 function closeImageModal() {
   document.getElementById('imgModal').classList.remove('show');
   document.getElementById('imgModalSrc').src = '';
 }
+
+// 키보드 좌/우 화살표, ESC 지원
+document.addEventListener('keydown', (e) => {
+  if (!document.getElementById('imgModal').classList.contains('show')) return;
+  if (e.key === 'ArrowLeft') navigateGalleryModal(-1);
+  else if (e.key === 'ArrowRight') navigateGalleryModal(1);
+  else if (e.key === 'Escape') closeImageModal();
+});
 
 // ───────────────────────────────────────
 // Keyword Table - 더보기/접기

@@ -637,9 +637,11 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
   <div class="card">
     <h2>저장된 리뷰 데이터 (Convex DB)</h2>
     <div id="reviewSessionList" style="font-size:13px; color:var(--gray-500);">불러오는 중...</div>
-    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center;">
       <button class="btn btn-primary hidden" id="btnSaveReview" onclick="saveReviewToConvex()">DB에 저장</button>
-      <button class="btn btn-secondary" onclick="loadAllReviewsFromConvex()">전체 누적 불러오기</button>
+      <button class="btn btn-primary" onclick="loadSelectedReviewsFromConvex()">선택 불러오기</button>
+      <button class="btn btn-secondary" onclick="toggleAllReviewSessions(true)">전체 선택</button>
+      <button class="btn btn-secondary" onclick="toggleAllReviewSessions(false)">전체 해제</button>
       <button class="btn btn-secondary" onclick="refreshReviewSessions()">새로고침</button>
     </div>
     <div id="reviewConvexProgress" class="hidden" style="margin-top:12px;">
@@ -2414,9 +2416,12 @@ function setReviewConvexStatus(msg, isError) {
   el.style.color = isError ? 'var(--danger)' : 'var(--gray-500)';
 }
 
+let reviewSessionCache = []; // 리뷰 세션 목록 캐시
+
 async function refreshReviewSessions() {
   try {
     const sessions = await convexCall('query', 'queryData:listReviewSessions', {});
+    reviewSessionCache = sessions;
     const listEl = document.getElementById('reviewSessionList');
     if (!sessions.length) {
       listEl.innerHTML = '<span style="color:var(--gray-500);">저장된 데이터 없음</span>';
@@ -2425,13 +2430,20 @@ async function refreshReviewSessions() {
     listEl.innerHTML = sessions.map(s => {
       const date = new Date(s.uploadedAt).toLocaleString('ko-KR');
       return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--gray-100);">
-        <span>${s.filename} — ${s.rowCount.toLocaleString()}건, ${s.productCount}개 상품</span>
-        <span style="font-size:11px; color:var(--gray-500);">${date}</span>
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1;">
+          <input type="checkbox" class="review-session-chk" value="${s._id}" checked>
+          <span>${escapeHtml(s.filename)} — ${s.rowCount.toLocaleString()}건, ${s.productCount}개 상품</span>
+        </label>
+        <span style="font-size:11px; color:var(--gray-500); white-space:nowrap; margin-left:8px;">${date}</span>
       </div>`;
     }).join('');
   } catch (err) {
     setReviewConvexStatus('세션 조회 실패: ' + err.message, true);
   }
+}
+
+function toggleAllReviewSessions(checked) {
+  document.querySelectorAll('.review-session-chk').forEach(cb => cb.checked = checked);
 }
 
 async function saveReviewToConvex() {
@@ -2490,32 +2502,69 @@ async function saveReviewToConvex() {
   }
 }
 
-async function loadAllReviewsFromConvex() {
+async function loadSelectedReviewsFromConvex() {
+  // 선택된 세션 ID 수집
+  const checkedIds = [...document.querySelectorAll('.review-session-chk:checked')].map(cb => cb.value);
+  if (checkedIds.length === 0) {
+    setReviewConvexStatus('불러올 세션을 선택해주세요.', true);
+    return;
+  }
+
+  const progEl = document.getElementById('reviewConvexProgress');
+  const barEl = document.getElementById('reviewProgressBar');
+  const textEl = document.getElementById('reviewProgressText');
+  progEl.classList.remove('hidden');
+  barEl.style.width = '0%';
+
+  // 선택된 세션의 예상 총 건수
+  const selectedSessions = reviewSessionCache.filter(s => checkedIds.includes(s._id));
+  const totalExpected = selectedSessions.reduce((s, x) => s + x.rowCount, 0);
+  textEl.textContent = `0 / ${totalExpected.toLocaleString()}건 로드 중...`;
   setReviewConvexStatus('데이터 불러오는 중...', false);
+
   try {
-    const sessions = await convexCall('query', 'queryData:listReviewSessions', {});
-    if (!sessions.length) { setReviewConvexStatus('저장된 데이터 없음', false); return; }
-
-    const sessionIds = sessions.map(s => s._id);
-    const allReviews = await convexCall('query', 'queryData:getReviews', { sessionIds });
-
-    // 메모리에 누적 로드
     reviewData = [];
-    for (const r of allReviews) {
-      reviewData.push({
-        productId: r.productId, productName: r.productName, category: r.category,
-        rating: r.rating, content: r.content, date: r.date,
-        reviewType: r.reviewType, isMonth: r.isMonth, hasPhoto: r.hasPhoto,
-        isBest: r.isBest, helpful: r.helpful, author: r.author, photos: r.photos,
-      });
+    let loaded = 0;
+
+    for (const sid of checkedIds) {
+      // 세션별 페이지네이션 로드
+      let cursor = null;
+      let isDone = false;
+      while (!isDone) {
+        const paginationOpts = { numItems: 2000, cursor: cursor || undefined };
+        const result = await convexCall('query', 'queryData:getReviewsPaginated', {
+          sessionId: sid,
+          paginationOpts,
+        });
+
+        for (const r of result.page) {
+          reviewData.push({
+            productId: r.productId, productName: r.productName, category: r.category,
+            rating: r.rating, content: r.content, date: r.date,
+            reviewType: r.reviewType, isMonth: r.isMonth, hasPhoto: r.hasPhoto,
+            isBest: r.isBest, helpful: r.helpful, author: r.author, photos: r.photos,
+          });
+        }
+
+        loaded += result.page.length;
+        isDone = result.isDone;
+        cursor = result.continueCursor;
+
+        const pct = totalExpected > 0 ? Math.min(Math.round((loaded / totalExpected) * 100), 100) : 0;
+        barEl.style.width = pct + '%';
+        textEl.textContent = `${loaded.toLocaleString()} / ${totalExpected.toLocaleString()}건 로드 중...`;
+      }
     }
+
     rebuildReviewIndex();
 
-    const totalRows = sessions.reduce((s, x) => s + x.rowCount, 0);
-    setReviewConvexStatus(`${sessions.length}개 세션에서 ${reviewData.length.toLocaleString()}건 로드 완료`, false);
+    barEl.style.width = '100%';
+    textEl.textContent = '완료!';
+    setReviewConvexStatus(`${checkedIds.length}개 세션에서 ${reviewData.length.toLocaleString()}건 로드 완료`, false);
+    setTimeout(() => progEl.classList.add('hidden'), 2000);
 
     document.getElementById('reviewUploadStatus').classList.remove('hidden');
-    document.getElementById('reviewFileName').textContent = 'Convex DB (누적)';
+    document.getElementById('reviewFileName').textContent = `Convex DB (${checkedIds.length}개 세션)`;
     document.getElementById('reviewRowCount').textContent = `${reviewData.length.toLocaleString()}개 리뷰`;
     document.getElementById('reviewProductCount').textContent = `${Object.keys(reviewProducts).length}개 상품`;
 
@@ -2531,6 +2580,7 @@ async function loadAllReviewsFromConvex() {
     setTimeout(() => navigateTo('r-reviews'), 500);
   } catch (err) {
     setReviewConvexStatus('로드 실패: ' + err.message, true);
+    progEl.classList.add('hidden');
   }
 }
 

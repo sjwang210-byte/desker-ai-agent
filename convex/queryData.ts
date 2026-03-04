@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 
 // ─────────────────────────────────────────
@@ -386,20 +387,17 @@ export const listReviewSessions = query({
 // 리뷰 데이터 로드 (세션 ID 배열)
 // ─────────────────────────────────────────
 
-export const getReviews = query({
+/** 단일 세션 리뷰 페이지네이션 로드 (8192 제한 우회) */
+export const getReviewsPaginated = query({
   args: {
-    sessionIds: v.array(v.id("reviewSessions")),
+    sessionId: v.id("reviewSessions"),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    let all: any[] = [];
-    for (const sid of args.sessionIds) {
-      const reviews = await ctx.db
-        .query("reviews")
-        .withIndex("by_session", (q: any) => q.eq("sessionId", sid))
-        .collect();
-      all = all.concat(reviews);
-    }
-    return all;
+    return await ctx.db
+      .query("reviews")
+      .withIndex("by_session", (q: any) => q.eq("sessionId", args.sessionId))
+      .paginate(args.paginationOpts);
   },
 });
 

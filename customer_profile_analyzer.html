@@ -3354,7 +3354,13 @@ function highlightNegative(html, keywords) {
 // Review - Photo Gallery
 // ───────────────────────────────────────
 let galleryPage = 1;
-const GALLERY_PER_PAGE = 60;
+const GALLERY_PER_PAGE = 30;
+
+// 네이버 이미지 URL 썸네일 변환 (갤러리용 작은 이미지)
+function thumbUrl(url) {
+  if (url.includes('pstatic.net')) return url + (url.includes('?') ? '&' : '?') + 'type=w300';
+  return url;
+}
 
 function renderPhotoGallery() {
   const catFilter = document.getElementById('galleryCategory')?.value || '__ALL__';
@@ -3373,7 +3379,7 @@ function renderPhotoGallery() {
   if (catFilter !== '__ALL__') reviews = reviews.filter(r => r.category === catFilter);
   if (ratingFilter !== 'all') reviews = reviews.filter(r => r.rating === parseInt(ratingFilter));
 
-  // flat 배열: { url, productName, rating, date, content }
+  // flat 배열
   const allPhotos = [];
   for (const r of reviews) {
     for (const url of r.photos) {
@@ -3399,20 +3405,32 @@ function renderPhotoGallery() {
   if (pagePhotos.length === 0) {
     grid.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500); grid-column:1/-1;">포토 리뷰가 없습니다.</div>';
   } else {
+    // placeholder 방식: src 대신 data-src, IntersectionObserver로 지연 로드
     grid.innerHTML = pagePhotos.map(p => {
       const stars = '★'.repeat(p.rating) + '☆'.repeat(5 - p.rating);
       const shortName = p.productName.length > 20 ? p.productName.substring(0, 20) + '...' : p.productName;
       return `<div class="gallery-item" onclick="openImageModal('${escapeHtml(p.url)}')" title="${escapeHtml(p.productName)}\n${p.content}">
-        <img src="${escapeHtml(p.url)}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
+        <img data-src="${escapeHtml(thumbUrl(p.url))}" alt="리뷰 사진" style="background:var(--gray-200);" onerror="this.parentElement.style.display='none'">
         <div class="gallery-caption">
           <div style="color:#FFD54F; font-size:10px;">${stars}</div>
           <div>${escapeHtml(shortName)}</div>
         </div>
       </div>`;
     }).join('');
+    // IntersectionObserver로 뷰포트 진입 시 이미지 로드
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const img = entry.target;
+          img.src = img.dataset.src;
+          observer.unobserve(img);
+        }
+      }
+    }, { rootMargin: '200px' });
+    grid.querySelectorAll('img[data-src]').forEach(img => observer.observe(img));
   }
 
-  renderPagination('photoGalleryPagination', galleryPage, totalPages, (p) => { galleryPage = p; renderPhotoGallery(); });
+  renderPagination('photoGalleryPagination', galleryPage, totalPages, (p) => { galleryPage = p; renderPhotoGallery(); window.scrollTo(0, 0); });
 }
 
 // ───────────────────────────────────────

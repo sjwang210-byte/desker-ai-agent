@@ -441,6 +441,7 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
     <a class="sidebar-item" onclick="navigateTo('r-reviews')"><span class="icon">💬</span>리뷰 리스트</a>
     <a class="sidebar-item" onclick="navigateTo('r-keywords')"><span class="icon">🏷️</span>키워드 분석</a>
     <a class="sidebar-item" onclick="navigateTo('r-negative')"><span class="icon">⚠️</span>부정적 의견</a>
+    <a class="sidebar-item" onclick="navigateTo('r-photos')"><span class="icon">📷</span>포토 갤러리</a>
   </div>
 
   <div class="sidebar-section">
@@ -775,6 +776,39 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
     <div id="negativeSummary" style="margin-bottom:16px;"></div>
     <div id="negativeListContainer"></div>
     <div class="pagination" id="negativePagination"></div>
+  </div>
+</div>
+
+<!-- ========== R-PHOTOS: 포토 갤러리 ========== -->
+<div class="page hidden" id="page-r-photos">
+  <div class="header-bar"><h2>구매 고객 리뷰 분석 — 포토 갤러리</h2></div>
+  <div class="card">
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px;">
+      <div class="control-group" style="min-width:180px;">
+        <label>카테고리</label>
+        <select id="galleryCategory" onchange="galleryPage=1; renderPhotoGallery();"
+          style="width:100%; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+          <option value="__ALL__">전체 카테고리</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>평점</label>
+        <select id="galleryRating" onchange="galleryPage=1; renderPhotoGallery();"
+          style="padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+          <option value="all">전체</option>
+          <option value="5">★★★★★ (5)</option>
+          <option value="4">★★★★☆ (4)</option>
+          <option value="3">★★★☆☆ (3)</option>
+          <option value="2">★★☆☆☆ (2)</option>
+          <option value="1">★☆☆☆☆ (1)</option>
+        </select>
+      </div>
+      <div style="font-size:13px; color:var(--gray-700); padding-bottom:4px;">
+        포토 리뷰 <strong id="galleryPhotoCount">0</strong>건 / 사진 <strong id="galleryImageCount">0</strong>장
+      </div>
+    </div>
+    <div class="gallery-grid" id="photoGalleryGrid"></div>
+    <div class="pagination" id="photoGalleryPagination" style="margin-top:16px;"></div>
   </div>
 </div>
 
@@ -2063,6 +2097,7 @@ function navigateTo(pageId) {
   }
   if (pageId === 'r-keywords') renderKeywords();
   if (pageId === 'r-negative') renderNegativeReviews();
+  if (pageId === 'r-photos') renderPhotoGallery();
 }
 
 // 상품별 상세 뷰 (검색 + 테이블)
@@ -3313,6 +3348,71 @@ function highlightNegative(html, keywords) {
       `<mark style="background:#FFCDD2; padding:0 2px; border-radius:2px;">$&</mark>`);
   }
   return result;
+}
+
+// ───────────────────────────────────────
+// Review - Photo Gallery
+// ───────────────────────────────────────
+let galleryPage = 1;
+const GALLERY_PER_PAGE = 60;
+
+function renderPhotoGallery() {
+  const catFilter = document.getElementById('galleryCategory')?.value || '__ALL__';
+  const ratingFilter = document.getElementById('galleryRating')?.value || 'all';
+
+  // 카테고리 드롭다운 채우기 (첫 호출 시)
+  const catSelect = document.getElementById('galleryCategory');
+  if (catSelect && catSelect.options.length <= 1 && reviewCategories.length > 0) {
+    for (const cat of reviewCategories) {
+      catSelect.appendChild(new Option(cat, cat));
+    }
+  }
+
+  // 필터링
+  let reviews = reviewData.filter(r => r.photos && r.photos.length > 0);
+  if (catFilter !== '__ALL__') reviews = reviews.filter(r => r.category === catFilter);
+  if (ratingFilter !== 'all') reviews = reviews.filter(r => r.rating === parseInt(ratingFilter));
+
+  // flat 배열: { url, productName, rating, date, content }
+  const allPhotos = [];
+  for (const r of reviews) {
+    for (const url of r.photos) {
+      allPhotos.push({
+        url,
+        productName: r.productName,
+        rating: r.rating,
+        date: r.date,
+        content: (r.content || '').substring(0, 60),
+      });
+    }
+  }
+
+  document.getElementById('galleryPhotoCount').textContent = reviews.length.toLocaleString();
+  document.getElementById('galleryImageCount').textContent = allPhotos.length.toLocaleString();
+
+  const totalPages = Math.ceil(allPhotos.length / GALLERY_PER_PAGE) || 1;
+  if (galleryPage > totalPages) galleryPage = totalPages;
+  const start = (galleryPage - 1) * GALLERY_PER_PAGE;
+  const pagePhotos = allPhotos.slice(start, start + GALLERY_PER_PAGE);
+
+  const grid = document.getElementById('photoGalleryGrid');
+  if (pagePhotos.length === 0) {
+    grid.innerHTML = '<div style="text-align:center; padding:40px; color:var(--gray-500); grid-column:1/-1;">포토 리뷰가 없습니다.</div>';
+  } else {
+    grid.innerHTML = pagePhotos.map(p => {
+      const stars = '★'.repeat(p.rating) + '☆'.repeat(5 - p.rating);
+      const shortName = p.productName.length > 20 ? p.productName.substring(0, 20) + '...' : p.productName;
+      return `<div class="gallery-item" onclick="openImageModal('${escapeHtml(p.url)}')" title="${escapeHtml(p.productName)}\n${p.content}">
+        <img src="${escapeHtml(p.url)}" alt="리뷰 사진" loading="lazy" onerror="this.parentElement.style.display='none'">
+        <div class="gallery-caption">
+          <div style="color:#FFD54F; font-size:10px;">${stars}</div>
+          <div>${escapeHtml(shortName)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  renderPagination('photoGalleryPagination', galleryPage, totalPages, (p) => { galleryPage = p; renderPhotoGallery(); });
 }
 
 // ───────────────────────────────────────

@@ -711,7 +711,7 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
       </div>
       <div class="control-group">
         <label>평점 필터</label>
-        <select id="reviewRatingFilter" onchange="renderReviewList()" style="padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+        <select id="reviewRatingFilter" onchange="reviewPage=1; renderReviewSummary(); renderReviewList();" style="padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
           <option value="all">전체</option>
           <option value="5">★★★★★ (5)</option>
           <option value="4">★★★★☆ (4)</option>
@@ -719,6 +719,16 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
           <option value="2">★★☆☆☆ (2)</option>
           <option value="1">★☆☆☆☆ (1)</option>
         </select>
+      </div>
+      <div class="control-group" style="flex:1; min-width:320px;">
+        <label>키워드 필터 (최대 3개, 쉼표 구분 또는 Enter)</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" id="reviewKeywordInput" placeholder="키워드 입력 후 Enter..."
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); addReviewKeyword();}"
+            style="flex:1; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+          <button onclick="addReviewKeyword()" class="btn btn-secondary" style="padding:8px 12px; white-space:nowrap;">추가</button>
+        </div>
+        <div class="chip-container" id="keywordChips" style="margin-top:6px;"></div>
       </div>
     </div>
     <div class="review-summary" id="reviewSummary"></div>
@@ -2141,6 +2151,7 @@ let reviewCategories = [];   // 카테고리 목록
 let selectedProductIds = []; // 선택된 상품번호
 let selectedCategory = '__ALL__';
 let reviewTypeFilter = 'all';
+let reviewKeywords = [];   // 키워드 필터 (최대 3개)
 let reviewPage = 1;
 const REVIEWS_PER_PAGE = 20;
 let negativePage = 1;
@@ -2683,6 +2694,42 @@ function selectAllReviewProducts() {
 }
 
 // ───────────────────────────────────────
+// Review - Keyword Filter
+// ───────────────────────────────────────
+function addReviewKeyword() {
+  const input = document.getElementById('reviewKeywordInput');
+  const raw = input.value.trim();
+  if (!raw) return;
+  // 쉼표로 구분된 여러 키워드 지원
+  const words = raw.split(/[,，]/).map(w => w.trim()).filter(w => w);
+  for (const w of words) {
+    if (reviewKeywords.length >= 3) break;
+    if (!reviewKeywords.includes(w)) reviewKeywords.push(w);
+  }
+  input.value = '';
+  renderKeywordChips();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+}
+
+function removeReviewKeyword(idx) {
+  reviewKeywords.splice(idx, 1);
+  renderKeywordChips();
+  reviewPage = 1;
+  renderReviewSummary();
+  renderReviewList();
+}
+
+function renderKeywordChips() {
+  const el = document.getElementById('keywordChips');
+  if (reviewKeywords.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = reviewKeywords.map((kw, i) =>
+    `<span class="chip" style="background:var(--primary-light); color:var(--primary-dark);">${escapeHtml(kw)} <span class="chip-x" onclick="removeReviewKeyword(${i})">&times;</span></span>`
+  ).join('') + (reviewKeywords.length > 0 ? `<span class="chip" style="background:var(--gray-100); cursor:pointer;" onclick="reviewKeywords=[]; renderKeywordChips(); reviewPage=1; renderReviewSummary(); renderReviewList();">전체 삭제</span>` : '');
+}
+
+// ───────────────────────────────────────
 // Review - Get Filtered Reviews
 // ───────────────────────────────────────
 function getFilteredReviews() {
@@ -2711,6 +2758,15 @@ function getFilteredReviews() {
   if (ratingFilter && ratingFilter !== 'all') {
     const rat = parseInt(ratingFilter);
     reviews = reviews.filter(r => r.rating === rat);
+  }
+
+  // Filter by keywords (AND logic: all keywords must match)
+  if (reviewKeywords.length > 0) {
+    const kwLower = reviewKeywords.map(k => k.toLowerCase());
+    reviews = reviews.filter(r => {
+      const text = (r.content || '').toLowerCase();
+      return kwLower.every(kw => text.includes(kw));
+    });
   }
 
   // Sort

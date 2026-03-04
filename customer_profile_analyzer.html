@@ -2455,15 +2455,35 @@ async function refreshReviewSessions() {
     listEl.innerHTML = sessions.map(s => {
       const date = new Date(s.uploadedAt).toLocaleString('ko-KR');
       return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--gray-100);">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; min-width:0;">
           <input type="checkbox" class="review-session-chk" value="${s._id}" checked>
-          <span>${escapeHtml(s.filename)} — ${s.rowCount.toLocaleString()}건, ${s.productCount}개 상품</span>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s.filename)} — ${s.rowCount.toLocaleString()}건, ${s.productCount}개 상품</span>
         </label>
-        <span style="font-size:11px; color:var(--gray-500); white-space:nowrap; margin-left:8px;">${date}</span>
+        <div style="display:flex; align-items:center; gap:8px; white-space:nowrap; margin-left:8px;">
+          <span style="font-size:11px; color:var(--gray-500);">${date}</span>
+          <button onclick="deleteReviewSessionById('${s._id}', this)" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:13px; padding:2px 6px;" title="삭제">✕</button>
+        </div>
       </div>`;
     }).join('');
   } catch (err) {
     setReviewConvexStatus('세션 조회 실패: ' + err.message, true);
+  }
+}
+
+async function deleteReviewSessionById(sessionId, btnEl) {
+  const session = reviewSessionCache.find(s => s._id === sessionId);
+  const name = session ? session.filename : sessionId;
+  if (!confirm(`"${name}" 세션을 삭제하시겠습니까?\n(${session ? session.rowCount.toLocaleString() + '건의 리뷰가 함께 삭제됩니다' : ''})`)) return;
+  btnEl.disabled = true;
+  btnEl.textContent = '...';
+  try {
+    await convexCall('mutation', 'uploadData:deleteReviewSession', { sessionId });
+    setReviewConvexStatus(`"${name}" 삭제 완료`, false);
+    refreshReviewSessions();
+  } catch (err) {
+    setReviewConvexStatus('삭제 실패: ' + err.message, true);
+    btnEl.disabled = false;
+    btnEl.textContent = '✕';
   }
 }
 

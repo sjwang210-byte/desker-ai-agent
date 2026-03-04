@@ -2531,7 +2531,7 @@ async function loadSelectedReviewsFromConvex() {
       let cursor = null;
       let isDone = false;
       while (!isDone) {
-        const paginationOpts = cursor ? { numItems: 2000, cursor } : { numItems: 2000 };
+        const paginationOpts = { numItems: 2000, cursor: cursor ?? null };
         const result = await convexCall('query', 'queryData:getReviewsPaginated', {
           sessionId: sid,
           paginationOpts,

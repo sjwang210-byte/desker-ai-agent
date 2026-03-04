@@ -2328,16 +2328,24 @@ function parseReviewRows(rows) {
     const reviewType = String(row[colMap.reviewType] || '').trim();
     const isMonth = reviewType.includes('한달');
     const hasPhotoRaw = String(row[colMap.hasPhoto] || '').trim();
-    const hasPhoto = hasPhotoRaw === 'Y' || hasPhotoRaw === '있음' || hasPhotoRaw.includes('포토');
+    // 포토/영상 컬럼에 URL이 직접 들어있는 경우 처리
+    let photos = [];
+    if (hasPhotoRaw.startsWith('http')) {
+      photos = hasPhotoRaw.split(/[,|;\n]/).map(u => u.trim()).filter(u => u.startsWith('http'));
+    }
+    // 별도 이미지URL 컬럼이 있으면 추가
+    if (colMap.photoUrls && row[colMap.photoUrls]) {
+      const urlStr = String(row[colMap.photoUrls]).trim();
+      if (urlStr) {
+        const extra = urlStr.split(/[,|;\n]/).map(u => u.trim()).filter(u => u.startsWith('http'));
+        photos = [...new Set([...photos, ...extra])];
+      }
+    }
+    const hasPhoto = photos.length > 0 || hasPhotoRaw === 'Y' || hasPhotoRaw === '있음' || hasPhotoRaw.includes('포토');
     const isBestRaw = String(row[colMap.isBest] || '').trim();
     const isBest = isBestRaw === 'Y' || isBestRaw === '있음' || isBestRaw.includes('베스트');
     const helpful = parseInt(row[colMap.helpful]) || 0;
     const author = String(row[colMap.author] || '').trim();
-    let photos = [];
-    if (colMap.photoUrls && row[colMap.photoUrls]) {
-      const urlStr = String(row[colMap.photoUrls]).trim();
-      if (urlStr) photos = urlStr.split(/[,|]/).map(u => u.trim()).filter(u => u.startsWith('http'));
-    }
     const category = detectCategory(pname);
     parsed.push({
       productId: pid, productName: pname, category, rating, content, date: dateStr,

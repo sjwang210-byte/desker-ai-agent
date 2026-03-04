@@ -669,10 +669,15 @@ td.max-val { background: #E3F2FD; font-weight: 700; color: var(--primary-dark); 
         </select>
       </div>
       <div class="control-group" style="flex:1; min-width:300px;">
-        <label>상품 검색 (클릭하여 선택)</label>
-        <input type="text" id="reviewProductSearch" placeholder="상품번호 또는 상품명 검색..."
-          oninput="filterReviewProducts()"
-          style="width:100%; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+        <label>상품 검색 (최대 2개 키워드, Enter로 추가)</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" id="reviewProductSearch" placeholder="상품명/상품번호 키워드 입력 후 Enter..."
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); addProductSearchKeyword();}"
+            oninput="if(!productSearchKeywords.length) filterReviewProducts()"
+            style="flex:1; padding:8px 12px; border:1px solid var(--gray-300); border-radius:6px; font-size:13px; font-family:inherit;">
+          <button onclick="addProductSearchKeyword()" class="btn btn-secondary" style="padding:8px 12px; white-space:nowrap;">추가</button>
+        </div>
+        <div class="chip-container" id="productSearchChips" style="margin-top:6px;"></div>
       </div>
     </div>
 
@@ -2151,7 +2156,8 @@ let reviewCategories = [];   // 카테고리 목록
 let selectedProductIds = []; // 선택된 상품번호
 let selectedCategory = '__ALL__';
 let reviewTypeFilter = 'all';
-let reviewKeywords = [];   // 키워드 필터 (최대 3개)
+let reviewKeywords = [];          // 리뷰 내용 키워드 필터 (최대 3개)
+let productSearchKeywords = [];   // 상품 검색 키워드 (최대 2개)
 let reviewPage = 1;
 const REVIEWS_PER_PAGE = 20;
 let negativePage = 1;
@@ -2618,13 +2624,48 @@ function clearProductSelection() {
 // ───────────────────────────────────────
 // Review - Product Filter
 // ───────────────────────────────────────
+function addProductSearchKeyword() {
+  const input = document.getElementById('reviewProductSearch');
+  const raw = input.value.trim();
+  if (!raw) return;
+  const words = raw.split(/[,，]/).map(w => w.trim()).filter(w => w);
+  for (const w of words) {
+    if (productSearchKeywords.length >= 2) break;
+    if (!productSearchKeywords.includes(w)) productSearchKeywords.push(w);
+  }
+  input.value = '';
+  renderProductSearchChips();
+  filterReviewProducts();
+}
+
+function removeProductSearchKeyword(idx) {
+  productSearchKeywords.splice(idx, 1);
+  renderProductSearchChips();
+  filterReviewProducts();
+}
+
+function renderProductSearchChips() {
+  const el = document.getElementById('productSearchChips');
+  if (productSearchKeywords.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = productSearchKeywords.map((kw, i) =>
+    `<span class="chip" style="background:#FFF3E0; color:#E65100;">${escapeHtml(kw)} <span class="chip-x" onclick="removeProductSearchKeyword(${i})">&times;</span></span>`
+  ).join('') + `<span class="chip" style="background:var(--gray-100); cursor:pointer;" onclick="productSearchKeywords=[]; renderProductSearchChips(); filterReviewProducts();">전체 삭제</span>`;
+}
+
 function filterReviewProducts() {
-  const search = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
+  // 칩 키워드가 있으면 칩 우선, 없으면 입력창 텍스트 사용
+  const inputText = (document.getElementById('reviewProductSearch').value || '').trim().toLowerCase();
+  const searchTerms = productSearchKeywords.length > 0
+    ? productSearchKeywords.map(k => k.toLowerCase())
+    : (inputText ? [inputText] : []);
   const listEl = document.getElementById('reviewProductList');
   const entries = Object.entries(reviewProducts)
     .filter(([pid, p]) => {
       if (selectedCategory !== '__ALL__' && p.category !== selectedCategory) return false;
-      if (search && !pid.toLowerCase().includes(search) && !p.name.toLowerCase().includes(search)) return false;
+      if (searchTerms.length > 0) {
+        const pidL = pid.toLowerCase(), nameL = p.name.toLowerCase();
+        return searchTerms.every(kw => pidL.includes(kw) || nameL.includes(kw));
+      }
       return true;
     })
     .sort((a, b) => b[1].count - a[1].count);

@@ -225,12 +225,18 @@ tbody tr:hover { background: var(--primary-light); }
       <p>시장조사 &amp; 분석 도구</p>
     </div>
     <div class="sidebar-section">
-      <div class="sidebar-section-title">시장 조사</div>
-      <a class="sidebar-item active" href="product_positioning_map.html">
-        <span class="icon">📐</span>제품 포지셔닝 맵
+      <div class="sidebar-section-title">포지셔닝 맵</div>
+      <a class="sidebar-item active" onclick="navigateTo('upload')" id="nav-upload">
+        <span class="icon">📊</span>엑셀 업로드
+      </a>
+      <a class="sidebar-item" onclick="navigateTo('results')" id="nav-results">
+        <span class="icon">📐</span>결과 보기
+      </a>
+      <a class="sidebar-item" onclick="navigateTo('saved')" id="nav-saved">
+        <span class="icon">🗄️</span>기존 분석 보기 <span id="saved-badge" style="display:none;background:var(--primary);color:white;font-size:10px;font-weight:700;border-radius:8px;padding:1px 6px;margin-left:4px;"></span>
       </a>
     </div>
-    <div class="sidebar-section">
+    <div class="sidebar-section" style="margin-top:auto;border-top:1px solid rgba(255,255,255,0.1);padding-top:8px;">
       <div class="sidebar-section-title">고객 분석</div>
       <a class="sidebar-item" href="customer_profile_analyzer.html">
         <span class="icon">👥</span>고객 프로파일 분석
@@ -240,33 +246,21 @@ tbody tr:hover { background: var(--primary-light); }
 
   <!-- Main -->
   <main class="main-content">
-    <div class="header-bar" style="display:flex;align-items:center;justify-content:space-between;">
-      <div>
-        <h2>📐 제품 포지셔닝 맵</h2>
-        <p>시장 제품 스펙 데이터를 업로드하면 가중 스펙 점수 기반 포지셔닝 맵을 생성합니다</p>
+    <!-- ═══════ 페이지 1: 엑셀 업로드 ═══════ -->
+    <div id="page-upload">
+      <div class="header-bar" style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <h2>📊 엑셀 업로드</h2>
+          <p>시장 제품 스펙 데이터를 업로드하고 분석 설정을 합니다</p>
+        </div>
+        <button class="btn-reset hidden" id="btn-global-reset" onclick="resetAll()" style="border-color:rgba(255,255,255,0.6);color:white;background:rgba(255,255,255,0.15);flex-shrink:0;">
+          초기화
+        </button>
       </div>
-      <button class="btn-reset hidden" id="btn-global-reset" onclick="resetAll()" style="border-color:rgba(255,255,255,0.6);color:white;background:rgba(255,255,255,0.15);flex-shrink:0;">
-        초기화
-      </button>
-    </div>
 
     <!-- Step 1: Upload -->
     <div class="card" id="card-upload">
       <h2><span>1</span> 데이터 업로드</h2>
-
-      <!-- 소스 탭 -->
-      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--gray-200);">
-        <button class="source-tab active" onclick="switchSource('file')" id="tab-file"
-          style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;">
-          📊 엑셀 파일 업로드
-        </button>
-        <button class="source-tab" onclick="switchSource('saved')" id="tab-saved"
-          style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--gray-500);border-bottom:2px solid transparent;margin-bottom:-2px;">
-          🗄️ 이전 분석 불러오기 <span id="saved-badge" style="display:none;background:var(--primary);color:white;font-size:10px;font-weight:700;border-radius:8px;padding:1px 6px;margin-left:4px;"></span>
-        </button>
-      </div>
-
-      <!-- 엑셀 업로드 -->
       <div id="source-file">
         <div class="upload-area" id="upload-area">
           <div class="icon">📊</div>
@@ -275,12 +269,6 @@ tbody tr:hover { background: var(--primary-light); }
           <input type="file" id="file-input" accept=".xlsx,.xls">
         </div>
       </div>
-
-      <!-- 저장된 분석 불러오기 -->
-      <div id="source-saved" class="hidden">
-        <div id="saved-sessions-list"></div>
-      </div>
-
       <div id="upload-status" class="hidden" style="margin-top:16px;"></div>
     </div>
 
@@ -349,10 +337,18 @@ tbody tr:hover { background: var(--primary-light); }
       <div id="weight-summary" style="margin-top:12px;"></div>
       <button class="btn btn-primary" style="margin-top:16px;" onclick="runAnalysis()">포지셔닝 분석 실행</button>
     </div>
+    </div><!-- /page-upload -->
+
+    <!-- ═══════ 페이지 2: 결과 보기 ═══════ -->
+    <div id="page-results" class="hidden">
+      <div class="header-bar">
+        <h2>📐 분석 결과</h2>
+        <p>가중 스펙 점수 기반 포지셔닝 맵과 데이터 테이블</p>
+      </div>
 
     <!-- Step 5: Results -->
-    <div class="card hidden" id="card-results">
-      <h2><span>5</span> 분석 결과</h2>
+    <div class="card" id="card-results">
+      <h2>분석 결과</h2>
       <div class="metric-grid" id="metrics"></div>
       <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('tab-map',this)">포지셔닝 맵</button>
@@ -405,8 +401,8 @@ tbody tr:hover { background: var(--primary-light); }
     </div>
 
     <!-- Step 6: Simulation -->
-    <div class="card hidden" id="card-sim">
-      <h2><span>6</span> 제품 시뮬레이션</h2>
+    <div class="card" id="card-sim">
+      <h2>제품 시뮬레이션</h2>
       <p style="font-size:13px;color:var(--gray-700);margin-bottom:16px;">스펙과 가격을 입력해서 맵에 추가할 제품을 시뮬레이션합니다. 여러 개 추가 가능합니다.</p>
 
       <!-- 추가된 시뮬 제품 목록 -->
@@ -419,6 +415,18 @@ tbody tr:hover { background: var(--primary-light); }
       </div>
       <div id="sim-result" class="hidden"></div>
     </div>
+    </div><!-- /page-results -->
+
+    <!-- ═══════ 페이지 3: 기존 분석 보기 ═══════ -->
+    <div id="page-saved" class="hidden">
+      <div class="header-bar">
+        <h2>🗄️ 기존 분석 보기</h2>
+        <p>이전에 저장된 포지셔닝 분석을 불러옵니다</p>
+      </div>
+      <div class="card">
+        <div id="saved-sessions-list"></div>
+      </div>
+    </div><!-- /page-saved -->
 
   </main>
 </div>
@@ -453,8 +461,8 @@ function resetAll() {
   hiddenProducts = new Set();
   columnTypeOverrides = {};
 
-  // 모든 결과 카드 숨기기
-  ['card-category','card-preview','card-weights','card-results','card-sim'].forEach(id => {
+  // 업로드 페이지의 설정 카드 숨기기
+  ['card-category','card-preview','card-weights'].forEach(id => {
     document.getElementById(id).classList.add('hidden');
   });
   // 업로드 상태 초기화
@@ -466,20 +474,16 @@ function resetAll() {
   document.getElementById('btn-global-reset').classList.add('hidden');
 }
 
-// ─── Source Tab Switch ───
-function switchSource(mode) {
-  document.getElementById('source-file').classList.toggle('hidden', mode !== 'file');
-  document.getElementById('source-saved').classList.toggle('hidden', mode !== 'saved');
-  const tabFile = document.getElementById('tab-file');
-  const tabSaved = document.getElementById('tab-saved');
-  if (mode === 'file') {
-    tabFile.style.color = 'var(--primary)'; tabFile.style.borderBottomColor = 'var(--primary)'; tabFile.style.fontWeight = '600';
-    tabSaved.style.color = 'var(--gray-500)'; tabSaved.style.borderBottomColor = 'transparent'; tabSaved.style.fontWeight = '500';
-  } else {
-    tabSaved.style.color = 'var(--primary)'; tabSaved.style.borderBottomColor = 'var(--primary)'; tabSaved.style.fontWeight = '600';
-    tabFile.style.color = 'var(--gray-500)'; tabFile.style.borderBottomColor = 'transparent'; tabFile.style.fontWeight = '500';
-    renderSavedSessions();
-  }
+// ─── 페이지 네비게이션 ───
+function navigateTo(pageId) {
+  ['page-upload', 'page-results', 'page-saved'].forEach(id => {
+    document.getElementById(id).classList.toggle('hidden', id !== 'page-' + pageId);
+  });
+  ['nav-upload', 'nav-results', 'nav-saved'].forEach(id => {
+    document.getElementById(id).classList.toggle('active', id === 'nav-' + pageId);
+  });
+  if (pageId === 'saved') renderSavedSessions();
+  if (pageId === 'results' && scored.length > 0) renderPositioningMap();
 }
 
 // ─── Convex 연동 ───
@@ -490,11 +494,11 @@ async function convexCall(type, path, args) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, args }),
+    body: JSON.stringify({ path, args, format: 'json' }),
   });
-  if (!res.ok) throw new Error(`Convex ${type} 실패: ${res.status}`);
   const json = await res.json();
-  return json;
+  if (json.status === 'error') throw new Error(json.errorMessage || 'Convex error');
+  return json.value;
 }
 
 let cachedSessions = [];
@@ -706,7 +710,7 @@ async function loadSession(id) {
       }
     }
 
-    // 분석 실행
+    // 분석 실행 (내부에서 navigateTo('results') 호출)
     runAnalysis();
 
     // 시뮬 목록 복원
@@ -715,16 +719,7 @@ async function loadSession(id) {
       renderPositioningMap();
     }
 
-    // 업로드 상태 표시
-    document.getElementById('upload-status').innerHTML =
-      `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
-        ✓ <strong>${s.label}</strong> 불러오기 완료 (${s.productCount}개 제품, ${s.specCount}개 스펙)
-      </div>`;
-    document.getElementById('upload-status').classList.remove('hidden');
     document.getElementById('btn-global-reset').classList.remove('hidden');
-
-    // 파일 업로드 탭으로 전환
-    switchSource('file');
   } catch (err) {
     alert('불러오기 실패: ' + err.message);
   }
@@ -1316,8 +1311,6 @@ function runAnalysis() {
 
   // Show results
   const card = document.getElementById('card-results');
-  card.classList.remove('hidden');
-  card.classList.add('fade-in');
 
   // Metrics
   const prices = scored.map(r => r[priceCol]);
@@ -1334,7 +1327,8 @@ function runAnalysis() {
   // 자동 저장
   saveSession();
 
-  card.scrollIntoView({ behavior:'smooth', block:'start' });
+  // 결과 페이지로 이동
+  navigateTo('results');
 }
 
 // O/X, 유/무, Y/N 등 텍스트를 숫자로 변환
@@ -1670,9 +1664,6 @@ function renderResultTable() {
 
 // ─── Simulation ───
 function setupSimulation() {
-  const card = document.getElementById('card-sim');
-  card.classList.remove('hidden');
-  card.classList.add('fade-in');
   const fields = document.getElementById('sim-fields');
   const medPrice = scored.map(r=>r[priceCol]).sort((a,b)=>a-b)[Math.floor(scored.length/2)] || 0;
 

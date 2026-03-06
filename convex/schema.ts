@@ -200,4 +200,17 @@ export default defineSchema({
     .index("by_session", ["sessionId"])
     .index("by_category", ["categoryId"])
     .index("by_name", ["name"]),
+
+  // ─────────────────────────────────────────
+  // 12. 포지셔닝 맵 세션 (공유용)
+  // ─────────────────────────────────────────
+  positioningMapSessions: defineTable({
+    label: v.string(),
+    savedAt: v.float64(),
+    productCount: v.float64(),
+    specCount: v.float64(),
+    priceRange: v.string(),
+    sessionData: v.any(),           // rawData, columns, mappings, weights, simProducts 등
+  })
+    .index("by_savedAt", ["savedAt"]),
 });

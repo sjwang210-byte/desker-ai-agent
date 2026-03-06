@@ -482,104 +482,104 @@ function switchSource(mode) {
   }
 }
 
-// ─── LocalStorage Save/Load ───
-const STORAGE_KEY = 'positioning_sessions';
+// ─── Convex 연동 ───
+const CONVEX_URL = 'https://grateful-cheetah-178.convex.cloud';
 
-function getSavedSessions() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch { return []; }
+async function convexCall(type, path, args) {
+  const url = `${CONVEX_URL}/api/${type}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, args }),
+  });
+  if (!res.ok) throw new Error(`Convex ${type} 실패: ${res.status}`);
+  const json = await res.json();
+  return json;
 }
 
-function updateSavedBadge() {
+let cachedSessions = [];
+
+async function getSavedSessions() {
+  try {
+    cachedSessions = await convexCall('query', 'positioningMap:listSessions', {});
+    return cachedSessions;
+  } catch (err) {
+    console.warn('세션 목록 로드 실패:', err);
+    return cachedSessions;
+  }
+}
+
+async function updateSavedBadge() {
   const badge = document.getElementById('saved-badge');
   if (!badge) return;
-  const count = getSavedSessions().length;
-  if (count > 0) {
-    badge.textContent = count;
+  const sessions = await getSavedSessions();
+  if (sessions.length > 0) {
+    badge.textContent = sessions.length;
     badge.style.display = 'inline';
   } else {
     badge.style.display = 'none';
   }
 }
 
-function saveSession(label) {
+async function saveSession(label) {
   if (!scored.length) return;
   const w = getWeights();
   const weightMode = document.querySelector('[name="weight-mode"]:checked')?.value || 'auto';
-  // 수동 모드면 슬라이더 raw 값 저장
   const manualSliders = {};
   if (weightMode === 'manual') {
     document.querySelectorAll('.weight-slider').forEach(s => {
       manualSliders[s.dataset.col] = parseInt(s.value);
     });
   }
-  // 체크된 스펙 컬럼
   const checkedSpecs = [...document.querySelectorAll('.spec-chk:checked')].map(cb => cb.value);
   const uncheckedSpecs = [...document.querySelectorAll('.spec-chk:not(:checked)')].map(cb => cb.value);
 
-  const session = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-    label: label || `분석 ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})}`,
-    savedAt: Date.now(),
-    productCount: scored.length,
-    specCount: specCols.length,
-    priceRange: `${Math.min(...scored.map(r=>r[priceCol])).toLocaleString()} ~ ${Math.max(...scored.map(r=>r[priceCol])).toLocaleString()}`,
-    // 데이터
-    rawData,
-    columns,
-    productCol,
-    priceCol,
-    specCols: checkedSpecs,
-    uncheckedSpecs,
-    columnTypeOverrides,
-    // 가중치
-    weightMode,
-    weights: w,
-    manualSliders,
-    // 시뮬레이션
-    simProducts: simProducts.map(p => ({...p})),
-    hiddenProducts: [...hiddenProducts],
-  };
+  const sessionLabel = label || `분석 ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})}`;
 
-  const sessions = getSavedSessions();
-  sessions.unshift(session);
-  // 최대 10개 유지
-  if (sessions.length > 10) sessions.length = 10;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch(e) {
-    // 용량 초과 시 오래된 것 제거 후 재시도
-    if (sessions.length > 1) {
-      sessions.pop();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-    }
+    await convexCall('mutation', 'positioningMap:saveSession', {
+      label: sessionLabel,
+      savedAt: Date.now(),
+      productCount: scored.length,
+      specCount: specCols.length,
+      priceRange: `${Math.min(...scored.map(r=>r[priceCol])).toLocaleString()} ~ ${Math.max(...scored.map(r=>r[priceCol])).toLocaleString()}`,
+      sessionData: {
+        rawData,
+        columns,
+        productCol,
+        priceCol,
+        specCols: checkedSpecs,
+        uncheckedSpecs,
+        columnTypeOverrides,
+        weightMode,
+        weights: w,
+        manualSliders,
+        simProducts: simProducts.map(p => ({...p})),
+        hiddenProducts: [...hiddenProducts],
+      },
+    });
+    updateSavedBadge();
+  } catch (err) {
+    console.warn('세션 저장 실패:', err);
   }
-  updateSavedBadge();
-  return session.id;
 }
 
-function renameSavedSession(id) {
-  const sessions = getSavedSessions();
-  const s = sessions.find(x => x.id === id);
-  if (!s) return;
-  const newName = prompt('새 이름을 입력하세요:', s.label);
-  if (newName === null || !newName.trim()) return;
-  s.label = newName.trim();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  renderSavedSessions();
+async function deleteSavedSession(id) {
+  if (!confirm('이 분석을 삭제할까요?')) return;
+  try {
+    await convexCall('mutation', 'positioningMap:deleteSession', { id });
+    updateSavedBadge();
+    renderSavedSessions();
+  } catch (err) {
+    alert('삭제 실패: ' + err.message);
+  }
 }
 
-function deleteSavedSession(id) {
-  const sessions = getSavedSessions().filter(s => s.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  updateSavedBadge();
-  renderSavedSessions();
-}
-
-function renderSavedSessions() {
+async function renderSavedSessions() {
   const box = document.getElementById('saved-sessions-list');
-  const sessions = getSavedSessions();
+  box.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-500);font-size:13px;">불러오는 중...</div>';
+
+  const sessions = await getSavedSessions();
 
   if (sessions.length === 0) {
     box.innerHTML = `
@@ -594,8 +594,6 @@ function renderSavedSessions() {
   box.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <p style="font-size:13px;color:var(--gray-700);">이전에 분석했던 데이터와 설정을 그대로 불러옵니다.</p>
-      <button onclick="if(confirm('모든 저장 기록을 삭제할까요?')){localStorage.removeItem('${STORAGE_KEY}');renderSavedSessions();}"
-        style="font-size:11px;color:var(--danger);background:none;border:1px solid var(--danger);border-radius:var(--radius);padding:4px 10px;cursor:pointer;">전체 삭제</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${sessions.map(s => {
@@ -604,7 +602,7 @@ function renderSavedSessions() {
         return `<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:white;border:1.5px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;transition:all 0.15s;"
           onmouseenter="this.style.borderColor='var(--primary)';this.style.boxShadow='var(--shadow-md)'"
           onmouseleave="this.style.borderColor='var(--gray-200)';this.style.boxShadow='none'">
-          <div style="flex:1;min-width:0;" onclick="loadSession('${s.id}')">
+          <div style="flex:1;min-width:0;" onclick="loadSession('${s._id}')">
             <div style="font-size:14px;font-weight:700;color:var(--gray-900);margin-bottom:4px;">${s.label}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--gray-500);">
               <span>📊 ${s.productCount}개 제품</span>
@@ -614,11 +612,9 @@ function renderSavedSessions() {
             <div style="font-size:11px;color:var(--gray-400);margin-top:4px;">${ago} · ${date.toLocaleDateString('ko-KR')} ${date.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;">
-            <button onclick="event.stopPropagation();loadSession('${s.id}')"
+            <button onclick="event.stopPropagation();loadSession('${s._id}')"
               style="padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;">불러오기</button>
-            <button onclick="event.stopPropagation();renameSavedSession('${s.id}')"
-              style="padding:6px 10px;background:none;color:var(--gray-500);border:1px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;font-size:12px;" title="이름 수정">✏️</button>
-            <button onclick="event.stopPropagation();deleteSavedSession('${s.id}')"
+            <button onclick="event.stopPropagation();deleteSavedSession('${s._id}')"
               style="padding:6px 10px;background:none;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;font-size:14px;" title="삭제">✕</button>
           </div>
         </div>`;
@@ -638,11 +634,10 @@ function getTimeAgo(ts) {
   return `${Math.floor(d/30)}개월 전`;
 }
 
-function saveWithLabel() {
+async function saveWithLabel() {
   const label = prompt('저장할 이름을 입력하세요:', `분석 ${new Date().toLocaleDateString('ko-KR')}`);
-  if (label === null) return; // 취소
-  saveSession(label.trim() || undefined);
-  // 피드백
+  if (label === null) return;
+  await saveSession(label.trim() || undefined);
   const btn = event.target;
   const orig = btn.innerHTML;
   btn.innerHTML = '✓ 저장 완료';
@@ -652,83 +647,87 @@ function saveWithLabel() {
   setTimeout(() => { btn.innerHTML = orig; btn.style.background = '#F3E5F5'; btn.style.color = '#7B1FA2'; btn.style.borderColor = '#CE93D8'; }, 1500);
 }
 
-function loadSession(id) {
-  const sessions = getSavedSessions();
-  const s = sessions.find(x => x.id === id);
-  if (!s) { alert('세션을 찾을 수 없습니다.'); return; }
+async function loadSession(id) {
+  try {
+    const s = await convexCall('query', 'positioningMap:getSession', { id });
+    if (!s) { alert('세션을 찾을 수 없습니다.'); return; }
 
-  // 상태 복원
-  rawData = s.rawData;
-  columns = s.columns;
-  columnTypeOverrides = s.columnTypeOverrides || {};
-  parsedMarket = null;
-  simProducts = (s.simProducts || []).map(p => ({...p}));
-  hiddenProducts = new Set(s.hiddenProducts || []);
+    const d = s.sessionData;
 
-  // UI 복원: 카테고리 선택 건너뛰기
-  document.getElementById('card-category').classList.add('hidden');
+    // 상태 복원
+    rawData = d.rawData;
+    columns = d.columns;
+    columnTypeOverrides = d.columnTypeOverrides || {};
+    parsedMarket = null;
+    simProducts = (d.simProducts || []).map(p => ({...p}));
+    hiddenProducts = new Set(d.hiddenProducts || []);
 
-  // 컬럼 매핑 UI 세팅
-  setupColumnMapping();
+    // UI 복원: 카테고리 선택 건너뛰기
+    document.getElementById('card-category').classList.add('hidden');
 
-  // 제품명/가격 컬럼 복원
-  const selP = document.getElementById('sel-product');
-  const selPr = document.getElementById('sel-price');
-  if (s.productCol) selP.value = s.productCol;
-  if (s.priceCol) selPr.value = s.priceCol;
+    // 컬럼 매핑 UI 세팅
+    setupColumnMapping();
 
-  // 스펙 체크박스 복원
-  const allSpecChks = document.querySelectorAll('.spec-chk');
-  allSpecChks.forEach(chk => {
-    if (s.uncheckedSpecs && s.uncheckedSpecs.includes(chk.value)) {
-      chk.checked = false;
-    } else if (s.specCols && s.specCols.includes(chk.value)) {
-      chk.checked = true;
-    }
-  });
+    // 제품명/가격 컬럼 복원
+    const selP = document.getElementById('sel-product');
+    const selPr = document.getElementById('sel-price');
+    if (d.productCol) selP.value = d.productCol;
+    if (d.priceCol) selPr.value = d.priceCol;
 
-  // 가중치 세팅
-  setupWeights();
+    // 스펙 체크박스 복원
+    const allSpecChks = document.querySelectorAll('.spec-chk');
+    allSpecChks.forEach(chk => {
+      if (d.uncheckedSpecs && d.uncheckedSpecs.includes(chk.value)) {
+        chk.checked = false;
+      } else if (d.specCols && d.specCols.includes(chk.value)) {
+        chk.checked = true;
+      }
+    });
 
-  // 가중치 모드 복원
-  if (s.weightMode === 'manual') {
-    const manualRadio = document.querySelector('[name="weight-mode"][value="manual"]');
-    if (manualRadio) {
-      manualRadio.checked = true;
-      manualRadio.dispatchEvent(new Event('change'));
-      document.getElementById('weight-auto').classList.add('hidden');
-      document.getElementById('weight-manual').classList.remove('hidden');
-      // 슬라이더 값 복원
-      if (s.manualSliders) {
-        document.querySelectorAll('.weight-slider').forEach(sl => {
-          if (s.manualSliders[sl.dataset.col] !== undefined) {
-            sl.value = s.manualSliders[sl.dataset.col];
-          }
-        });
-        updateSliderTotal();
+    // 가중치 세팅
+    setupWeights();
+
+    // 가중치 모드 복원
+    if (d.weightMode === 'manual') {
+      const manualRadio = document.querySelector('[name="weight-mode"][value="manual"]');
+      if (manualRadio) {
+        manualRadio.checked = true;
+        manualRadio.dispatchEvent(new Event('change'));
+        document.getElementById('weight-auto').classList.add('hidden');
+        document.getElementById('weight-manual').classList.remove('hidden');
+        if (d.manualSliders) {
+          document.querySelectorAll('.weight-slider').forEach(sl => {
+            if (d.manualSliders[sl.dataset.col] !== undefined) {
+              sl.value = d.manualSliders[sl.dataset.col];
+            }
+          });
+          updateSliderTotal();
+        }
       }
     }
+
+    // 분석 실행
+    runAnalysis();
+
+    // 시뮬 목록 복원
+    if (simProducts.length > 0) {
+      renderSimList();
+      renderPositioningMap();
+    }
+
+    // 업로드 상태 표시
+    document.getElementById('upload-status').innerHTML =
+      `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
+        ✓ <strong>${s.label}</strong> 불러오기 완료 (${s.productCount}개 제품, ${s.specCount}개 스펙)
+      </div>`;
+    document.getElementById('upload-status').classList.remove('hidden');
+    document.getElementById('btn-global-reset').classList.remove('hidden');
+
+    // 파일 업로드 탭으로 전환
+    switchSource('file');
+  } catch (err) {
+    alert('불러오기 실패: ' + err.message);
   }
-
-  // 분석 실행
-  runAnalysis();
-
-  // 시뮬 목록 복원
-  if (simProducts.length > 0) {
-    renderSimList();
-    renderPositioningMap();
-  }
-
-  // 업로드 상태 표시
-  document.getElementById('upload-status').innerHTML =
-    `<div style="padding:12px;background:var(--success-light);border-radius:var(--radius);color:var(--success);font-size:13px;">
-      ✓ <strong>${s.label}</strong> 불러오기 완료 (${s.productCount}개 제품, ${s.specCount}개 스펙)
-    </div>`;
-  document.getElementById('upload-status').classList.remove('hidden');
-  document.getElementById('btn-global-reset').classList.remove('hidden');
-
-  // 파일 업로드 탭으로 전환
-  switchSource('file');
 }
 
 // ─── Field Mapping (transposed excel) ───
@@ -744,8 +743,44 @@ const SKIP_ROWS = new Set(['이미지','리뷰','']);
 // 전치형 감지용 키워드 (첫 열에 이들이 포함되면 전치형)
 const TRANSPOSED_KEYWORDS = ['이름','제품명','브랜드','가격','판매가','소재','원산지'];
 
-// ─── Init ───
-updateSavedBadge();
+// ─── Init: localStorage → Convex 마이그레이션 + 배지 업데이트 ───
+(async function initSessions() {
+  const OLD_KEY = 'positioning_sessions';
+  const raw = localStorage.getItem(OLD_KEY);
+  if (raw) {
+    try {
+      const oldSessions = JSON.parse(raw);
+      if (Array.isArray(oldSessions) && oldSessions.length > 0) {
+        for (const s of oldSessions) {
+          await convexCall('mutation', 'positioningMap:saveSession', {
+            label: s.label || '마이그레이션된 세션',
+            savedAt: s.savedAt || Date.now(),
+            productCount: s.productCount || 0,
+            specCount: s.specCount || 0,
+            priceRange: s.priceRange || '',
+            sessionData: {
+              rawData: s.rawData || [],
+              columns: s.columns || [],
+              productCol: s.productCol || '',
+              priceCol: s.priceCol || '',
+              specCols: s.specCols || [],
+              uncheckedSpecs: s.uncheckedSpecs || [],
+              columnTypeOverrides: s.columnTypeOverrides || {},
+              weightMode: s.weightMode || 'auto',
+              weights: s.weights || {},
+              manualSliders: s.manualSliders || {},
+              simProducts: s.simProducts || [],
+              hiddenProducts: s.hiddenProducts || [],
+            },
+          });
+        }
+        localStorage.removeItem(OLD_KEY);
+        console.log(`Migrated ${oldSessions.length} sessions to Convex`);
+      }
+    } catch (err) { console.warn('localStorage 마이그레이션 실패:', err); }
+  }
+  updateSavedBadge();
+})();
 
 // ─── Upload ───
 const uploadArea = document.getElementById('upload-area');

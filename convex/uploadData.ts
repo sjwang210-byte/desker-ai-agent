@@ -219,17 +219,22 @@ export const insertReviews = mutation({
 // 리뷰 세션 삭제
 // ─────────────────────────────────────────
 
-export const deleteReviewSession = mutation({
+// 리뷰 배치 삭제 (한 번에 최대 500건)
+export const deleteReviewsBatch = mutation({
   args: { sessionId: v.id("reviewSessions") },
   handler: async (ctx, args) => {
     const reviews = await ctx.db
       .query("reviews")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect();
+      .take(500);
     for (const r of reviews) {
       await ctx.db.delete(r._id);
     }
-    await ctx.db.delete(args.sessionId);
-    return reviews.length;
+    // 남은 리뷰가 있으면 false, 다 삭제했으면 true
+    if (reviews.length < 500) {
+      await ctx.db.delete(args.sessionId);
+      return { done: true, deleted: reviews.length };
+    }
+    return { done: false, deleted: reviews.length };
   },
 });

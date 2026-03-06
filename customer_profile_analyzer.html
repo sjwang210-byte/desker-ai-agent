@@ -2538,10 +2538,17 @@ async function deleteReviewSessionById(sessionId, btnEl) {
   const name = session ? session.filename : sessionId;
   if (!confirm(`"${name}" 세션을 삭제하시겠습니까?\n(${session ? session.rowCount.toLocaleString() + '건의 리뷰가 함께 삭제됩니다' : ''})`)) return;
   btnEl.disabled = true;
-  btnEl.textContent = '...';
+  btnEl.textContent = '삭제중...';
   try {
-    await convexCall('mutation', 'uploadData:deleteReviewSession', { sessionId });
-    setReviewConvexStatus(`"${name}" 삭제 완료`, false);
+    let totalDeleted = 0;
+    let done = false;
+    while (!done) {
+      const result = await convexCall('mutation', 'uploadData:deleteReviewsBatch', { sessionId });
+      totalDeleted += result.deleted;
+      done = result.done;
+      btnEl.textContent = `삭제중(${totalDeleted})...`;
+    }
+    setReviewConvexStatus(`"${name}" 삭제 완료 (${totalDeleted}건)`, false);
     refreshReviewSessions();
   } catch (err) {
     setReviewConvexStatus('삭제 실패: ' + err.message, true);
@@ -3410,7 +3417,7 @@ function renderPhotoGallery() {
   let reviews = reviewData.filter(r => r.photos && r.photos.length > 0);
   if (catFilter !== '__ALL__') reviews = reviews.filter(r => r.category === catFilter);
   if (ratingFilter !== 'all') reviews = reviews.filter(r => r.rating === parseInt(ratingFilter));
-  if (productSearch) reviews = reviews.filter(r => r.productName.toLowerCase().includes(productSearch) || r.productId.toLowerCase().includes(productSearch));
+  if (productSearch) reviews = reviews.filter(r => r.productName.toLowerCase().includes(productSearch) || r.productId.toLowerCase().includes(productSearch) || (r.category || '').toLowerCase().includes(productSearch));
 
   // flat 배열 (모달에서 리뷰 내용 표시용으로 전체 content 포함)
   const allPhotos = [];

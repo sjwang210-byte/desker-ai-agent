@@ -43,7 +43,7 @@ export const saveSession = mutation({
     productCount: v.float64(),
     specCount: v.float64(),
     priceRange: v.string(),
-    sessionData: v.any(),
+    sessionData: v.string(),
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("positioningMapSessions", {

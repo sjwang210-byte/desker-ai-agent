@@ -525,8 +525,16 @@ async function updateSavedBadge() {
   }
 }
 
+// NaN, Infinity 등 JSON 비호환 값을 null로 치환
+function sanitizeForJson(obj) {
+  return JSON.parse(JSON.stringify(obj, (k, v) => {
+    if (typeof v === 'number' && !isFinite(v)) return null;
+    return v;
+  }));
+}
+
 async function saveSession(label) {
-  if (!scored.length) return;
+  if (!scored.length) return false;
   const w = getWeights();
   const weightMode = document.querySelector('[name="weight-mode"]:checked')?.value || 'auto';
   const manualSliders = {};
@@ -541,30 +549,35 @@ async function saveSession(label) {
   const sessionLabel = label || `분석 ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})}`;
 
   try {
+    const sessionData = JSON.stringify({
+      rawData,
+      columns,
+      productCol,
+      priceCol,
+      specCols: checkedSpecs,
+      uncheckedSpecs,
+      columnTypeOverrides,
+      weightMode,
+      weights: w,
+      manualSliders,
+      simProducts: simProducts.map(p => ({...p})),
+      hiddenProducts: [...hiddenProducts],
+    }, (k, v) => typeof v === 'number' && !isFinite(v) ? null : v);
+
     await convexCall('mutation', 'positioningMap:saveSession', {
       label: sessionLabel,
       savedAt: Date.now(),
       productCount: scored.length,
       specCount: specCols.length,
       priceRange: `${Math.min(...scored.map(r=>r[priceCol])).toLocaleString()} ~ ${Math.max(...scored.map(r=>r[priceCol])).toLocaleString()}`,
-      sessionData: {
-        rawData,
-        columns,
-        productCol,
-        priceCol,
-        specCols: checkedSpecs,
-        uncheckedSpecs,
-        columnTypeOverrides,
-        weightMode,
-        weights: w,
-        manualSliders,
-        simProducts: simProducts.map(p => ({...p})),
-        hiddenProducts: [...hiddenProducts],
-      },
+      sessionData,
     });
     updateSavedBadge();
+    return true;
   } catch (err) {
-    console.warn('세션 저장 실패:', err);
+    console.error('세션 저장 실패:', err);
+    alert('저장 실패: ' + err.message);
+    return false;
   }
 }
 
@@ -641,14 +654,16 @@ function getTimeAgo(ts) {
 async function saveWithLabel() {
   const label = prompt('저장할 이름을 입력하세요:', `분석 ${new Date().toLocaleDateString('ko-KR')}`);
   if (label === null) return;
-  await saveSession(label.trim() || undefined);
   const btn = event.target;
-  const orig = btn.innerHTML;
-  btn.innerHTML = '✓ 저장 완료';
-  btn.style.background = 'var(--success-light)';
-  btn.style.color = 'var(--success)';
-  btn.style.borderColor = 'var(--success)';
-  setTimeout(() => { btn.innerHTML = orig; btn.style.background = '#F3E5F5'; btn.style.color = '#7B1FA2'; btn.style.borderColor = '#CE93D8'; }, 1500);
+  const ok = await saveSession(label.trim() || undefined);
+  if (ok) {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '✓ 저장 완료';
+    btn.style.background = 'var(--success-light)';
+    btn.style.color = 'var(--success)';
+    btn.style.borderColor = 'var(--success)';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.background = '#F3E5F5'; btn.style.color = '#7B1FA2'; btn.style.borderColor = '#CE93D8'; }, 1500);
+  }
 }
 
 async function loadSession(id) {
@@ -656,7 +671,7 @@ async function loadSession(id) {
     const s = await convexCall('query', 'positioningMap:getSession', { id });
     if (!s) { alert('세션을 찾을 수 없습니다.'); return; }
 
-    const d = s.sessionData;
+    const d = typeof s.sessionData === 'string' ? JSON.parse(s.sessionData) : s.sessionData;
 
     // 상태 복원
     rawData = d.rawData;
@@ -753,7 +768,7 @@ const TRANSPOSED_KEYWORDS = ['이름','제품명','브랜드','가격','판매�
             productCount: s.productCount || 0,
             specCount: s.specCount || 0,
             priceRange: s.priceRange || '',
-            sessionData: {
+            sessionData: JSON.stringify({
               rawData: s.rawData || [],
               columns: s.columns || [],
               productCol: s.productCol || '',
@@ -766,7 +781,7 @@ const TRANSPOSED_KEYWORDS = ['이름','제품명','브랜드','가격','판매�
               manualSliders: s.manualSliders || {},
               simProducts: s.simProducts || [],
               hiddenProducts: s.hiddenProducts || [],
-            },
+            }),
           });
         }
         localStorage.removeItem(OLD_KEY);

@@ -210,7 +210,7 @@ export default defineSchema({
     productCount: v.float64(),
     specCount: v.float64(),
     priceRange: v.string(),
-    sessionData: v.any(),           // rawData, columns, mappings, weights, simProducts 등
+    sessionData: v.string(),         // JSON 문자열 (한글 필드명 포함 가능)
   })
     .index("by_savedAt", ["savedAt"]),
 });
